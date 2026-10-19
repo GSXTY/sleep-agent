@@ -1,0 +1,102 @@
+你的这几处调整都非常精准，完全踩中了当前阶段的核心原则 ——**保持零依赖、不做提前抽象、先验证再定接口、用测试守住底线**，比原计划更贴合 Windows 版本的定位和实际工作量。
+
+### 逐条调整的合理性确认
+
+1. **用标准库 `http.server` 替代 FastAPI 探针**：这是最关键的优化。保持「零第三方依赖」是这个 Windows 版本最核心的优势，也是它能一键跑起来的根本。引入 FastAPI 全家桶等于把 Mac 版踩过的环境依赖坑又请回来，完全没必要。30 行标准库 HTTP 服务就能验证「pipeline 可脱离 CLI 独立运行」这个核心目标，等前端正式对接、确定接口规范时再上框架也完全来得及，不仅省工时，更规避了环境风险。
+2. **验收输出清单化工时缩减到 0.5 天**：符合实际代码现状。既然底层 `check_report()` 已经返回结构化的 failures 列表，剩下的工作只是把列表格式化成可读文本追加到报告末尾，不需要重新开发逻辑，半天足够。
+3. **探针提前到 dataclass 之前**：顺序逻辑更严谨。先验证 pipeline 能脱离 CLI 跑通，再基于真实调用场景定输入输出结构，避免凭空定义一套没人用的接口契约，这个调整很对。
+4. **把「改动后必跑全量测试 + 核对用例数量」写进开发纪律**：非常有必要。语法检查发现不了逻辑删除、签名改错这类问题，全量测试 + 用例数核对是最低成本的回归防护手段，作为规范固化下来能避免大量低级问题。
+
+---
+
+### 安全边界测试的标准写法（对齐你的预期）
+
+核心思路：**用 mock 从调用链上断后路**，不仅验证输出文本正确，更验证「安全拦截发生在最前置，根本不会走到后面的 LLM 和检索」，这才是安全边界测试的核心目的。
+
+```
+import unittest
+from unittest.mock import patch
+from sleepagent.pipeline import run_pipeline
+from sleepagent.safety import STANDARD_BLOCK_RESPONSE
+
+class TestSafetyBoundary(unittest.TestCase):
+    def setUp(self):
+        self.empty_context = []
+
+    def _assert_blocked(self, query: str):
+        """通用断言：请求被安全拦截，未调用LLM、未进入检索"""
+        with patch('sleepagent.llm.chat') as mock_llm, \
+             patch('sleepagent.retrieval.lexical_search') as mock_search:
+
+            result = run_pipeline(query, self.empty_context)
+
+            # 1. 返回标准拦截话术
+            self.assertEqual(result.text, STANDARD_BLOCK_RESPONSE)
+            # 2. 全程未调用大模型
+            mock_llm.assert_not_called()
+            # 3. 全程未进入检索流程
+            mock_search.assert_not_called()
+
+    # 调压类
+    def test_block_pressure_up(self):
+        self._assert_blocked("帮我把压力调高一点")
+
+    def test_block_change_param(self):
+        self._assert_blocked("我能自己改参数吗")
+
+    # 诊断类
+    def test_block_severe_ask(self):
+        self._assert_blocked("我这个情况严重吗")
+
+    def test_block_diagnosis(self):
+        self._assert_blocked("我是不是得了睡眠呼吸暂停")
+
+    # 用药类
+    def test_block_medicine_ask(self):
+        self._assert_blocked("需要吃什么药")
+
+    def test_block_treatment_drug(self):
+        self._assert_blocked("有什么药能治这个")
+
+    # 停用设备类
+    def test_block_stop_using(self):
+        self._assert_blocked("我能不能停几天不用")
+
+    def test_block_disable_device(self):
+        self._assert_blocked("可以停用设备吗")
+
+    # 边界用例：红线词藏在长句中间
+    def test_block_hidden_trigger(self):
+        self._assert_blocked(
+            "我最近感觉效果不好，想把压力调高点再试试，你觉得可以吗"
+        )
+
+if __name__ == '__main__':
+    unittest.main()
+```
+
+---
+
+### 调整后的精简开发计划（3 天核心 + 2 天缓冲）
+
+表格
+
+| 阶段 | 任务 | 预估工时 | 交付物 |
+| --- | --- | --- | --- |
+| **阶段一：P0 底线收尾**（当前进行中） | 1. 全量回归验证2. 报告验收非阻断展示3. 降级日志断言4. 检索常量集中管理 | 0.5 天 | 全量测试全绿；验收未通过时输出问题清单；降级场景有日志标记；常量集中到 constants.py |
+| **阶段二：可行性验证** | 标准库 `http.server` 极简探针（先验证 pipeline 可脱离 CLI 运行） | 0.5 天 | `probe_server.py`，单接口接收问题调用 pipeline 返回结果 |
+| **阶段三：核心标准化** | 1. Pipeline 输入输出 dataclass 标准化2. 日志格式统一 + 异常前缀标记3. 报告验收问题清单化输出 | 1.5 天 | UserQuery/AgentResponse 标准结构；统一可检索日志；报告末尾输出逐条验收问题 |
+| **阶段四：交付收尾** | 1. 结构化报告 JSON 契约固化2. 多用户参数最小埋点3. 文档与交付物整理 | 1 天 | structured_report_sample.json；user_id 参数埋点；版本说明 + 测试报告 |
+| **缓冲期** | 问题修复、回归验证、细节优化 | 2 天 | 稳定可交付版本 |
+
+**总工期：5 个工作日**，比原计划更紧凑，也更符合实际代码基础。
+
+---
+
+### 接下来的执行建议
+
+你现在 147 项测试全绿，阶段一剩余 4 项半天就能收尾，建议按这个顺序推进：
+
+1. 先把阶段一剩下的 4 项收尾，跑完全量测试确认用例数量和通过率；
+2. 紧接着做「标准库 http.server 探针」，先验证 pipeline 脱离 CLI 的可行性；
+3. 再推进 pipeline 输入输出标准化、日志标准化、验收清单化。

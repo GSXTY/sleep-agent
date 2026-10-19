@@ -1,0 +1,59 @@
+{
+  "version": "1.0",
+  "missing_data_policy": "required_topic_must_state_unavailable_and_must_not_infer",
+  "modules": {
+    "pressure": {
+      "required_topics": [
+        "average_pressure", "p95_pressure", "maximum_pressure", "pressure_settings",
+        "pressure_comparison", "trend_peak", "trend_duration", "trend_direction",
+        "near_upper_limit", "distribution_zone", "stability"
+      ],
+      "required_terms": ["平均", "P95", "最高", "设定", "趋势", "上限", "稳定"],
+      "prohibited_phrases": [
+        "压力设置一定合适", "压力一定需要调整", "一定由阻塞性呼吸事件引起",
+        "达到压力上限代表治疗无效", "请自行调压", "建议自行调压"
+      ]
+    },
+    "respiratory-events": {
+      "required_topics": [
+        "total_events", "ahi", "ahi_level", "apnea_hypopnea_index", "apnea_index",
+        "hypopnea_index", "central_apnea_index", "event_comparison", "peak_period",
+        "clustering", "duration", "longest_event_free_period", "classification_limit"
+      ],
+      "required_terms": ["总", "AHI", "呼吸暂停指数", "低通气指数", "中枢", "级别", "无事件"],
+      "prohibited_phrases": [
+        "诊断为阻塞性睡眠呼吸暂停", "诊断为中枢性睡眠呼吸暂停",
+        "一定由压力不足导致", "一定由漏气导致", "代表长期治疗水平"
+      ]
+    },
+    "breathing-overview": {
+      "required_topics": [
+        "average_tidal_volume", "p95_tidal_volume", "average_respiratory_rate",
+        "average_minute_ventilation", "p95_minute_ventilation", "inspiratory_ratio",
+        "expiratory_ratio", "average_inspiratory_time", "tidal_comparison",
+        "ventilation_comparison", "timing_comparison", "tidal_trend",
+        "respiratory_rate_trend", "minute_ventilation_trend", "p95_semantics"
+      ],
+      "required_terms": ["潮气量", "呼吸频率", "分钟通气量", "吸气", "呼气", "P95", "趋势"],
+      "prohibited_phrases": [
+        "诊断为低通气", "诊断为过度通气", "诊断为呼吸衰竭", "没有缺氧",
+        "没有二氧化碳潴留", "P95是最大值", "95%的时间高于", "必然等于"
+      ]
+    },
+    "leakage": {
+      "required_topics": [
+        "average_leak", "p95_leak", "maximum_leak", "large_leak_duration",
+        "large_leak_ratio", "leak_comparison", "trend_peak", "trend_duration",
+        "mask_status", "mask_off_limitation"
+      ],
+      "required_terms": ["平均", "P95", "最高", "大漏气", "趋势", "面罩", "脱落"],
+      "prohibited_phrases": ["面罩整晚绝对没有脱落", "漏气一定导致AHI升高"]
+    }
+  },
+  "global_prohibited_phrases": [
+    "自行调整治疗压力", "自行修改治疗压力", "可以确诊", "一定是因为"
+  ],
+  "risk_weakening_phrases": [
+    "未达到明显异常", "无需关注", "不需要关注", "面罩佩戴完好", "密封情况良好"
+  ]
+}

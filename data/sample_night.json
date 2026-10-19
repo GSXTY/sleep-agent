@@ -1,0 +1,69 @@
+{
+  "_comment": "样板数据，不是真实用户数据。字段结构参照 YA70 报告层，数值为人工构造，仅用于演示与测试。",
+  "data_source": "样板数据（非真实病例）",
+  "report_id": "SAMPLE-0001",
+  "user_id": "DEMO-USER",
+  "record_date": "2026-10-15",
+  "device_model": "YA70",
+  "firmware_version": "1.3.0",
+  "mask_type": "nasal",
+  "pressure_unit": "hPa",
+  "treat_time_minutes": 402,
+  "treat_score": 86,
+  "treat_duration_score": 61,
+  "mask_score": 17,
+  "resp_score": 8,
+  "pressure_setting": {
+    "mode": "auto",
+    "min": 4,
+    "max": 8
+  },
+  "treat_pressure_avg": 4.35,
+  "treat_pressure_p95": 5,
+  "treat_pressure_max": 5.2,
+  "ahi": 6.4,
+  "apnea_index": 2.1,
+  "hypopnea_index": 3.6,
+  "central_apnea_index": 0.7,
+  "apnea_count_total": 14,
+  "hypopnea_count_total": 24,
+  "ca_count_total": 5,
+  "apnea_duration_total_sec": 168,
+  "hypopnea_duration_total_sec": 205,
+  "longest_event_free_minutes": 74,
+  "tidal_volume_avg_ml": 452,
+  "tidal_volume_p95_ml": 560,
+  "respiratory_rate_avg": 15.2,
+  "minute_ventilation_avg_lpm": 6.9,
+  "minute_ventilation_p95_lpm": 8.4,
+  "inspiratory_ratio_percent": 42,
+  "expiratory_ratio_percent": 58,
+  "inspiratory_time_avg_sec": 1.65,
+  "air_leakage_avg": 12.4,
+  "air_leakage_p95": 18.1,
+  "air_leakage_max": 24.6,
+  "large_leak_minutes": 6,
+  "large_leak_percent": 1.5,
+  "minute_detail_coverage": "missing",
+  "event_detail_coverage": "missing",
+  "history": [
+    {
+      "record_date": "2026-10-12",
+      "ahi": 7.1,
+      "air_leakage_p95": 19.6,
+      "treat_time_minutes": 388
+    },
+    {
+      "record_date": "2026-10-13",
+      "ahi": 6.8,
+      "air_leakage_p95": 17.4,
+      "treat_time_minutes": 415
+    },
+    {
+      "record_date": "2026-10-14",
+      "ahi": 6.9,
+      "air_leakage_p95": 18.9,
+      "treat_time_minutes": 396
+    }
+  ]
+}
