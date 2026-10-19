@@ -243,6 +243,35 @@ HOWTO_TERMS = ("多久", "怎么办", "怎么用", "怎么做", "怎么清洗", 
                "换一次", "换多久", "怎么保养", "怎么维护",
                "用什么", "用多少", "要多久", "需要多久")
 
+PRODUCT_FEATURE_TERMS = (
+    "自动漏气补偿", "漏气补偿", "压力释放", "延时升压", "压力上升坡度",
+    "自动开机", "自动关机", "漏气提示", "参数锁定", "加温湿化器",
+    "湿化器", "加温管路", "工作模式", "产品介绍", "工作原理",
+)
+
+
+VISIBILITY_LABELS = {
+    "internal": "内部资料",
+    "examples": "示例资料",
+}
+
+
+def _source_label(hit: dict) -> str:
+    prefix = VISIBILITY_LABELS.get(hit.get("visibility"), "")
+    label = hit["doc"] + " · " + hit["section"]
+    return prefix + " · " + label if prefix else label
+
+
+def _sources_for_mode(mode: str, doc_hits: list, knowledge_hits: list, picked: list) -> list:
+    base_mode = str(mode).split("（", 1)[0]
+    if base_mode == "产品文档":
+        return [_source_label(hit) for hit in doc_hits]
+    if base_mode == "设备数据":
+        return [item.fid for item in picked] + [item["id"] for item in knowledge_hits]
+    if base_mode == "指标解释":
+        return [item["id"] for item in knowledge_hits]
+    return []
+
 
 def _doc_fallback(hits: list) -> str:
     """没有大模型时，直接把资料原文给出来 —— 相当于一次文档检索。"""
@@ -250,7 +279,7 @@ def _doc_fallback(hits: list) -> str:
         return NO_MATERIAL_TEXT
     lines = ["我在产品资料里查到以下内容（当前未启用大模型，直接给出原文）：", ""]
     for index, hit in enumerate(hits, 1):
-        lines.append("【" + str(index) + "】《" + hit["doc"] + "》" + hit["section"])
+        lines.append("【" + str(index) + "】" + _source_label(hit))
         lines.append(hit["text"])
         lines.append("")
     return "\n".join(lines).strip()
@@ -379,20 +408,22 @@ def answer(query: UserQuery | str, night: nightdata.Night,
     picked = _facts_for(request.user_id, night, decision, question)
     knowledge_hits = knowledge.retrieve(question, top_k=2)
     is_howto = any(term in question for term in HOWTO_TERMS)
+    is_product_feature = any(term in question for term in PRODUCT_FEATURE_TERMS)
+    product_priority = is_howto or is_product_feature
 
     # 时间指代（昨晚 / 前天 / 具体日期）说明问的是用户自己的数据，
     # 此时即使带「多久」这类产品提问词，也应该走设备数据
     has_time_ref = _has_time_ref(question)
 
     doc_hits = product_kb.retrieve(question, top_k=3)
-    if not doc_hits and is_howto:
+    if not doc_hits and product_priority:
         # 「面罩多久换」这类问题只匹配到一个词，覆盖率刚好不到严格阈值。
         # 产品提问信号明确时放宽一次，避免漏检；通用问题不会走到这里。
         doc_hits = product_kb.retrieve(question, top_k=3, min_score=3.0, min_coverage=0.2)
 
     if has_time_ref and picked:
         mode = "设备数据"
-    elif doc_hits and is_howto:
+    elif doc_hits and product_priority:
         mode = "产品文档"
     elif picked:
         mode = "设备数据"
@@ -443,7 +474,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                     result["content"],
                     mode + "（" + result["provider"] + " / " + result["model"] + "，已校验）",
                     "意图 " + decision["goal"],
-                    sources=[hit["doc"] + " · " + hit["section"] for hit in doc_hits],
+                    sources=_sources_for_mode(mode, doc_hits, knowledge_hits, picked),
                     validation=check,
                     intent=decision["goal"],
                     recall=len(doc_hits) + len(knowledge_hits),
@@ -470,7 +501,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
         return emit(
             _doc_fallback(doc_hits), "产品文档（规则版）",
             fallback_reason or "未启用大模型",
-            sources=[hit["doc"] + " · " + hit["section"] for hit in doc_hits],
+            sources=[_source_label(hit) for hit in doc_hits],
             validation=fallback_validation,
             risk_flags=fallback_flags,
             intent=decision["goal"],
@@ -486,7 +517,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
         return emit(
             "\n\n".join(parts), "设备数据（规则版）",
             fallback_reason or "未启用大模型",
-            sources=[item["id"] for item in knowledge_hits],
+            sources=[item.fid for item in picked] + [item["id"] for item in knowledge_hits],
             validation=fallback_validation,
             risk_flags=fallback_flags,
             intent=decision["goal"],

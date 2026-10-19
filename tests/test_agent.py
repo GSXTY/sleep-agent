@@ -720,14 +720,17 @@ class TestHybridFallback(unittest.TestCase):
     def test_falls_back_when_embeddings_unavailable(self):
         from unittest import mock
         with mock.patch.object(product_kb.embeddings, "available", return_value=False):
-            hybrid = product_kb.retrieve("滤芯多久换一次", top_k=3)
-            lexical = product_kb.lexical_search("滤芯多久换一次", top_k=3)
+            hybrid = product_kb.retrieve("滤芯多久换一次", top_k=3, visibility="user")
+            lexical = product_kb.lexical_search(
+                "滤芯多久换一次", top_k=3, visibility="user")
         self.assertEqual([hit["section"] for hit in hybrid],
                          [hit["section"] for hit in lexical])
 
     def test_hybrid_false_is_pure_lexical(self):
-        hybrid = product_kb.retrieve("滤芯多久换一次", top_k=3, hybrid=False)
-        lexical = product_kb.lexical_search("滤芯多久换一次", top_k=3)
+        hybrid = product_kb.retrieve(
+            "滤芯多久换一次", top_k=3, visibility="user", hybrid=False)
+        lexical = product_kb.lexical_search(
+            "滤芯多久换一次", top_k=3, visibility="user")
         self.assertEqual([hit["section"] for hit in hybrid],
                          [hit["section"] for hit in lexical])
 

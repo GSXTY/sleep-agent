@@ -22,11 +22,13 @@ from functools import lru_cache
 from pathlib import Path
 
 DOCS_DIR_NAME = "product_docs"
-# product_docs/user/ 下的资料可用于对用户回答；
-# product_docs/internal/ 下的资料默认不参与对用户回答（注册要求、检测方法等）。
-# 直接放在根目录的文件按对外处理，保持向后兼容。
+# 默认检索 user、internal、examples 三个目录。
+# 来源会带上 visibility，入口层可以区分正式说明书、内部要求和示例资料。
+# 直接放在根目录的文件按对用户资料处理，保持向后兼容。
 VISIBILITY_USER = "user"
 VISIBILITY_INTERNAL = "internal"
+VISIBILITY_EXAMPLE = "examples"
+VISIBILITY_ALL = "all"
 CHUNK_CHARS = 480          # 每个切片的软上限
 MIN_SCORE = 3.0            # 低于这个分数视为没有命中
 MIN_COVERAGE = 0.3         # 内容词重合覆盖率下限
@@ -209,9 +211,16 @@ def load_chunks() -> tuple:
         rel_parts = [part.lower() for part in path.relative_to(directory).parts[:-1]]
         # 只认 user/ 与 internal/ 两个子目录（以及直接放在根目录的文件）；
         # examples/ 之类的目录用于存放示例，不参与检索。
-        if rel_parts and rel_parts[0] not in (VISIBILITY_USER, VISIBILITY_INTERNAL):
+        if rel_parts and rel_parts[0] not in (
+            VISIBILITY_USER, VISIBILITY_INTERNAL, VISIBILITY_EXAMPLE
+        ):
             continue
-        visibility = VISIBILITY_INTERNAL if VISIBILITY_INTERNAL in rel_parts else VISIBILITY_USER
+        if VISIBILITY_INTERNAL in rel_parts:
+            visibility = VISIBILITY_INTERNAL
+        elif VISIBILITY_EXAMPLE in rel_parts:
+            visibility = VISIBILITY_EXAMPLE
+        else:
+            visibility = VISIBILITY_USER
         try:
             chunks.extend(_chunk(path.name, _read_lines(path), visibility))
         except Exception as exc:
@@ -366,7 +375,7 @@ def _sparse(visibility: str) -> dict:
 
 def lexical_search(question: str, top_k: int = 10, min_score: float = None,
                    min_coverage: float = None,
-                   visibility: str = VISIBILITY_USER) -> list:
+                   visibility: str = VISIBILITY_ALL) -> list:
     """稀疏检索：BM25 + 章节名加成 + 覆盖率闸门。"""
     if not question.strip() or top_k <= 0:
         return []
@@ -433,7 +442,7 @@ def _rrf_fuse(ranked_lists: list, top_k: int, weights=None, k: int = None) -> li
     return fused
 
 
-def dense_search(question: str, top_k: int = 10, visibility: str = VISIBILITY_USER):
+def dense_search(question: str, top_k: int = 10, visibility: str = VISIBILITY_ALL):
     """稠密（向量）检索。模型不可用或索引建不起来时返回 None。"""
     if not embeddings.available():
         return None
@@ -452,25 +461,58 @@ def dense_search(question: str, top_k: int = 10, visibility: str = VISIBILITY_US
     return passed or None
 
 
-def retrieve(question: str, top_k: int = 3, min_score: float = None,
-             min_coverage: float = None, visibility: str = VISIBILITY_USER,
-             hybrid: bool = True) -> list:
-    """混合检索入口：稀疏 + 稠密，RRF 融合。
+def _hit_key(hit: dict) -> tuple:
+    return (hit.get("doc"), hit.get("section"), hit.get("index"))
 
-    签名与行为对调用方保持兼容：向量不可用时自动退回纯关键词，
-    所以 chat.py 一行都不用改。
-    """
+
+def _retrieve_base(question: str, top_k: int, min_score, min_coverage,
+                   visibility: str, hybrid: bool, log_degrade: bool = True) -> list:
     lexical = lexical_search(question, top_k=10, min_score=min_score,
                              min_coverage=min_coverage, visibility=visibility)
     if not hybrid:
         return lexical[:top_k]
     dense = dense_search(question, top_k=10, visibility=visibility)
     if not dense:
-        # 降级要留痕：对用户无感知，但后台要能排查
-        logger.warning("[DEGRADE] degraded_to_lexical visibility=%s", visibility)
+        if log_degrade:
+            logger.warning("[DEGRADE] degraded_to_lexical visibility=%s", visibility)
         return lexical[:top_k]
-    # 稀疏这一路带章节名先验，在实际语料上表现更稳，给更高权重
-    return _rrf_fuse([lexical, dense], top_k=top_k, weights=retrieval_constants.RRF_WEIGHTS)
+    return _rrf_fuse([lexical, dense], top_k=top_k,
+                     weights=retrieval_constants.RRF_WEIGHTS)
+
+
+def retrieve(question: str, top_k: int = 3, min_score: float = None,
+             min_coverage: float = None, visibility: str = VISIBILITY_ALL,
+             hybrid: bool = True) -> list:
+    """混合检索入口：稀疏 + 稠密，RRF 融合。
+
+    visibility=all 时优先保证正式 user 资料；user 命中不足 top_k 时，
+    再用 internal/examples 补齐。这样内部资料和示例资料可被引用，
+    但不会把正式说明书挤出前几条。
+    """
+    if visibility != VISIBILITY_ALL:
+        return _retrieve_base(question, top_k, min_score, min_coverage,
+                              visibility, hybrid)
+
+    user_hits = _retrieve_base(question, top_k, min_score, min_coverage,
+                                VISIBILITY_USER, hybrid, log_degrade=False)
+    if len(user_hits) >= top_k:
+        if not embeddings.available():
+            logger.warning("[DEGRADE] degraded_to_lexical visibility=all")
+        return user_hits[:top_k]
+
+    all_hits = _retrieve_base(question, top_k, min_score, min_coverage,
+                              VISIBILITY_ALL, hybrid)
+    merged = []
+    seen = set()
+    for hit in user_hits + all_hits:
+        key = _hit_key(hit)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(hit)
+        if len(merged) >= top_k:
+            break
+    return merged
 
 
 def render(hits: list) -> str:
@@ -484,10 +526,16 @@ def render(hits: list) -> str:
 
 def stats() -> dict:
     chunks = load_chunks()
-    user_docs, internal_docs = set(), set()
+    user_docs, internal_docs, example_docs = set(), set(), set()
     for chunk in chunks:
-        (internal_docs if chunk.visibility == VISIBILITY_INTERNAL else user_docs).add(chunk.doc)
-    return {"documents": sorted(user_docs | internal_docs),
+        if chunk.visibility == VISIBILITY_INTERNAL:
+            internal_docs.add(chunk.doc)
+        elif chunk.visibility == VISIBILITY_EXAMPLE:
+            example_docs.add(chunk.doc)
+        else:
+            user_docs.add(chunk.doc)
+    return {"documents": sorted(user_docs | internal_docs | example_docs),
             "user_documents": sorted(user_docs),
             "internal_documents": sorted(internal_docs),
+            "example_documents": sorted(example_docs),
             "chunks": len(chunks), "directory": str(docs_dir())}

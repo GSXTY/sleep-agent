@@ -207,6 +207,10 @@ def main(argv: list) -> int:
                     print("  内部资料（默认不用于回答用户）：")
                     for name in data["internal_documents"]:
                         print("    " + name)
+                if data.get("example_documents"):
+                    print("  示例资料（演示用占位内容，请勿当作正式参数）：")
+                    for name in data["example_documents"]:
+                        print("    " + name)
                 print("  目录：" + data["directory"])
             continue
         if question == "/knowledge":

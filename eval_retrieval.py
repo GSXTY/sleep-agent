@@ -81,9 +81,16 @@ def evaluate(name: str, retriever, verbose: bool = False) -> dict:
 
 def main() -> int:
     verbose = "--verbose" in sys.argv
-    chunks = [chunk for chunk in product_kb.load_chunks() if chunk.visibility == "user"]
+    chunks = list(product_kb.load_chunks())
     index = bm25.build_from_chunks(chunks)
-    print("对外切片数: " + str(len(chunks)) + "  |  用例数: " + str(len(CASES)))
+    counts = {
+        visibility: sum(1 for chunk in chunks if chunk.visibility == visibility)
+        for visibility in ("user", "internal", "examples")
+    }
+    print("检索切片数: " + str(len(chunks)) + "  |  用例数: " + str(len(CASES)))
+    print("切片来源: user=" + str(counts["user"])
+          + " / internal=" + str(counts["internal"])
+          + " / examples=" + str(counts["examples"]))
     cfg = embeddings.settings()
     print("向量模型: " + cfg["provider"] + " / " + cfg["model"]
           + ("  可用的" if embeddings.available() else "  不可用（只跑稀疏）"))
