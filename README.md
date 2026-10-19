@@ -48,7 +48,7 @@ python -m unittest discover -s tests -v
 
 ---
 
-## 四种模式
+## 七种模式
 
 按下面的顺序判定，先命中的先执行：
 
