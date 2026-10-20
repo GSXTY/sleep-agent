@@ -18,6 +18,7 @@ from __future__ import annotations
 
 # 稀疏检索
 SECTION_BONUS = 6.0
+SECTION_TOKEN_BONUS = 4.0      # 章节名与问题词组重合时的加成
 MIN_COVERAGE_DEFAULT = 0.4
 SPARSE_MIN_SCORE = 0.0        # 实测无法区分合法与无关问题，默认不加下限
 RETRIEVAL_POOL = 60

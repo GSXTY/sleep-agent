@@ -21,6 +21,9 @@ class TestRetrievalConstants(unittest.TestCase):
     def test_section_bonus(self):
         self.assertEqual(rc.SECTION_BONUS, 6.0)
 
+    def test_section_token_bonus(self):
+        self.assertEqual(rc.SECTION_TOKEN_BONUS, 4.0)
+
     def test_coverage_gate(self):
         self.assertEqual(rc.MIN_COVERAGE_DEFAULT, 0.4)
 

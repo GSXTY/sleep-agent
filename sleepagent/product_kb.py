@@ -344,6 +344,7 @@ def _score(question: str, chunk: Chunk, min_coverage: float = MIN_COVERAGE) -> f
 #   3. 覆盖率闸门 —— 过滤「只匹配到一个词」的弱命中
 # 实测（97 个真实切片，22 条用例）：R@1 68% / R@3 91%，高于纯手写打分的 45% / 82%。
 SECTION_BONUS = retrieval_constants.SECTION_BONUS
+SECTION_TOKEN_BONUS = retrieval_constants.SECTION_TOKEN_BONUS
 MIN_COVERAGE_DEFAULT = retrieval_constants.MIN_COVERAGE_DEFAULT
 # 分数下限实测无法区分合法问题与无关问题（合法最低 2.95、无关最高 4.92），
 # 真正起作用的是覆盖率闸门，所以这里默认不加分数下限。
@@ -387,12 +388,17 @@ def lexical_search(question: str, top_k: int = 10, min_score: float = None,
         return []
 
     normalized_question = _normalize(question)
+    question_tokens = _content_tokens(question)
     for hit in hits:
         section = _normalize(hit.get("section", ""))
         if section and (section in normalized_question or normalized_question in section):
             hit["score"] = round(hit["score"] + SECTION_BONUS, 4)
+        section_overlap = question_tokens & _content_tokens(hit.get("section", ""))
+        if section_overlap:
+            hit["score"] = round(
+                hit["score"] + SECTION_TOKEN_BONUS * len(section_overlap), 4
+            )
 
-    question_tokens = _content_tokens(question)
     if question_tokens and gate > 0:
         kept = []
         for hit in hits:
@@ -463,6 +469,22 @@ def dense_search(question: str, top_k: int = 10, visibility: str = VISIBILITY_AL
 
 def _hit_key(hit: dict) -> tuple:
     return (hit.get("doc"), hit.get("section"), hit.get("index"))
+
+
+def trim_low_relevance(hits: list, min_ratio: float = 0.5, question: str = "") -> list:
+    """定义类问题只保留与第一名分数接近的切片，避免长文档噪声。"""
+    if not hits:
+        return []
+    if question:
+        top_section_tokens = _content_tokens(hits[0].get("section", ""))
+        question_tokens = _content_tokens(question)
+        if question_tokens & top_section_tokens:
+            return hits[:1]
+    top_score = float(hits[0].get("score") or 0.0)
+    if top_score <= 0:
+        return hits[:1]
+    return [hit for hit in hits
+            if float(hit.get("score") or 0.0) >= top_score * min_ratio]
 
 
 def _retrieve_base(question: str, top_k: int, min_score, min_coverage,

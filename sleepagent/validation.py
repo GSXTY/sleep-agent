@@ -44,6 +44,11 @@ ADVICE_PATTERNS = ("建议自行调", "可以自行调", "你可以调高", "你
 
 MAX_LENGTH = 1200
 
+NEGATION_MARKERS = (
+    "不要", "不能", "不应", "不可", "不得", "不建议", "避免", "禁止",
+    "请勿", "无需", "不用", "别",
+)
+
 
 def _numbers(text: str) -> set:
     return {value for value in re.findall(r"\d+(?:\.\d+)?", text)}
@@ -67,6 +72,19 @@ def _supported(value: str, allowed: set) -> bool:
         except ValueError:
             continue
     return False
+
+
+def _has_unsafe_phrase(text: str, phrase: str) -> bool:
+    """检查短语是否出现在肯定语境中；明确否定的安全提醒不算违规。"""
+    start = 0
+    while True:
+        position = text.find(phrase, start)
+        if position < 0:
+            return False
+        prefix = text[max(0, position - 12):position]
+        if not any(marker in prefix for marker in NEGATION_MARKERS):
+            return True
+        start = position + len(phrase)
 
 
 # PRD 4.6.2 的三档强度。别名保留，避免调用方改动。
@@ -106,7 +124,7 @@ def check_output(text: str, material: str, mode: str = "strong") -> dict:
 
     if level["medical"]:
         for phrase in MEDICAL_GUARDS:
-            if phrase in text:
+            if _has_unsafe_phrase(text, phrase):
                 problems.append("出现禁止语：" + phrase)
 
     if level["clinical"]:
@@ -120,7 +138,7 @@ def check_output(text: str, material: str, mode: str = "strong") -> dict:
                 problems.append("P95 语义错误：" + pattern)
 
     for pattern in ADVICE_PATTERNS:
-        if pattern in text:
+        if _has_unsafe_phrase(text, pattern):
             problems.append("出现调压建议：" + pattern)
 
     return {"ok": not problems, "problems": problems}
