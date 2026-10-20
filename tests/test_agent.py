@@ -64,6 +64,11 @@ class TestSocial(unittest.TestCase):
     def test_capability(self):
         self.assertEqual(social.classify("你能做什么")[0], "capability")
 
+    def test_capability_examples_use_common_entrypoints(self):
+        text = social.CAPABILITY_TEXT
+        self.assertIn("帮我生成报告", text)
+        self.assertIn("什么是 AHI", text)
+
     def test_report_trigger(self):
         self.assertEqual(social.classify("出个报告")[0], "report")
 
