@@ -179,18 +179,28 @@ def _chunk(doc_name: str, lines: list, visibility: str = VISIBILITY_USER) -> lis
     section = doc_name
     buffer = []
 
-    def flush():
+    def flush(section_override: str | None = None):
         if buffer:
             text = "\n".join(buffer).strip()
             if text:
                 chunks.append(Chunk(doc=doc_name, section=section, text=text,
                                     index=len(chunks), visibility=visibility))
+                if section_override:
+                    chunks[-1].section = section_override
             buffer.clear()
 
     for line in lines:
         if _is_heading(line):
             flush()
             section = line.lstrip("# ").strip() or section
+            continue
+        if " | " in line and "故障排除" in section:
+            # 故障排除/规格表的一行通常就是一个独立事实。
+            # 如果把整张表合并成一个切片，单个症状的向量会被其他行稀释。
+            flush()
+            buffer.append(line)
+            row_label = line.split(" | ", 1)[0].strip()
+            flush(section + (" · " + row_label if row_label and len(row_label) <= 24 else ""))
             continue
         buffer.append(line)
         if sum(len(item) for item in buffer) >= CHUNK_CHARS:

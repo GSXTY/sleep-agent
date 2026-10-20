@@ -455,8 +455,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
         # 「面罩多久换」这类问题只匹配到一个词，覆盖率刚好不到严格阈值。
         # 产品提问信号明确时放宽一次，避免漏检；通用问题不会走到这里。
         doc_hits = product_kb.retrieve(question, top_k=3, min_score=3.0, min_coverage=0.2)
-    if decision["goal"] == "explanation":
-        doc_hits = product_kb.trim_low_relevance(doc_hits, question=question)
+    doc_hits = product_kb.trim_low_relevance(doc_hits, question=question)
 
     if has_time_ref and picked:
         mode = "设备数据"

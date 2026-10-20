@@ -24,6 +24,12 @@ class TestDefinitionAnswer(unittest.TestCase):
         self.assertIn("EPAP", result.text)
         self.assertNotIn("电磁兼容", result.text)
 
+    def test_eye_pain_uses_troubleshooting_row_only(self):
+        result = pipeline.answer("为什么眼睛有点痛", self.night, [], use_llm=False)
+        self.assertIn("眼睛刺痛", result.text)
+        self.assertNotIn("胸部不适", result.text)
+        self.assertNotIn("电磁兼容", result.text)
+
     def test_trim_keeps_close_scores(self):
         hits = [
             {"score": 0.02, "section": "A"},
