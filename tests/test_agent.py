@@ -305,7 +305,7 @@ class TestDateQuestionGoesToClock(unittest.TestCase):
         with mock.patch.object(self.chat.llm, "chat", side_effect=fake_chat):
             self.chat.answer("推荐一部电影", self.night, [], use_llm=True)
         self.assertTrue(captured, "通用问答应该调用模型")
-        joined = str(captured[0])
+        joined = str(captured[-1])
         self.assertIn(runtime_info.now().strftime("%Y-%m-%d"), joined)
 
 

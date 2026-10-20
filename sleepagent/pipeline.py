@@ -12,8 +12,9 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from sleepagent import (embeddings, knowledge, llm, nightdata, product_kb, product_models,
-                        report, router, runtime_info, safety, social, validation)
+from sleepagent import (embeddings, intent_fallback, knowledge, llm, nightdata,
+                        product_features, product_kb, product_models, report, router,
+                        runtime_info, safety, social, validation)
 from sleepagent.router import route
 
 logger = logging.getLogger("sleepagent.pipeline")
@@ -90,6 +91,7 @@ class AgentResponse(Mapping):
     detail: str = ""
     request_id: str = ""
     sources: list = field(default_factory=list)
+    candidates: list = field(default_factory=list)
     tier: str = "weak"
     validation: dict = field(default_factory=dict)
     risk_flags: list = field(default_factory=list)
@@ -102,6 +104,7 @@ class AgentResponse(Mapping):
             "detail": self.detail,
             "request_id": self.request_id,
             "sources": list(self.sources),
+            "candidates": list(self.candidates),
             "tier": self.tier,
             "validation": dict(self.validation),
             "risk_flags": list(self.risk_flags),
@@ -122,13 +125,13 @@ def _tier_for_mode(mode: str) -> str:
     base_mode = str(mode).split("（", 1)[0]
     if base_mode in ("安全边界",):
         return "blocked"
-    if base_mode in ("系统信息", "型号确认"):
+    if base_mode in ("系统信息", "型号确认", "意图确认", "功能确认"):
         return "none"
     return VALIDATION_MODE.get(base_mode, "weak")
 
 
 def _response(text: str, mode: str, detail: str = "", sources=None,
-              validation=None, risk_flags=None, structured=None,
+              validation=None, risk_flags=None, structured=None, candidates=None,
               request_id: str = "") -> AgentResponse:
     return AgentResponse(
         text=text,
@@ -136,6 +139,7 @@ def _response(text: str, mode: str, detail: str = "", sources=None,
         detail=detail,
         request_id=request_id,
         sources=list(sources or []),
+        candidates=list(candidates or []),
         tier=_tier_for_mode(mode),
         validation=validation if validation is not None else {"ok": None, "problems": []},
         risk_flags=list(risk_flags or []),
@@ -247,7 +251,8 @@ HOWTO_TERMS = ("多久", "怎么办", "怎么用", "怎么做", "怎么清洗", 
                "怎么换", "如何", "怎样", "更换", "清洗", "安装", "连接", "设置",
                "操作", "说明书", "报错", "故障", "能不能", "可以吗", "哪里", "坏了",
                "换一次", "换多久", "怎么保养", "怎么维护",
-               "用什么", "用多少", "要多久", "需要多久")
+               "用什么", "用多少", "要多久", "需要多久",
+               "什么时候换", "什么时候更换", "该换", "需要换", "要不要换", "需不需要换")
 
 PRODUCT_FEATURE_TERMS = (
     "自动漏气补偿", "漏气补偿", "压力释放", "延时升压", "压力上升坡度",
@@ -279,6 +284,17 @@ def _sources_for_mode(mode: str, doc_hits: list, knowledge_hits: list, picked: l
     return []
 
 
+def _excerpt(text: str, max_chars: int = 600) -> str:
+    text = (text or "").strip()
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars]
+    boundary = max(cut.rfind("\n"), cut.rfind("。"), cut.rfind("；"))
+    if boundary >= max_chars // 2:
+        cut = cut[:boundary + 1]
+    return cut.rstrip() + "\n……（后续内容已省略）"
+
+
 def _doc_fallback(hits: list) -> str:
     """没有大模型时，直接把资料原文给出来 —— 相当于一次文档检索。"""
     if not hits:
@@ -286,7 +302,7 @@ def _doc_fallback(hits: list) -> str:
     lines = ["我在产品资料里查到以下内容（当前未启用大模型，直接给出原文）：", ""]
     for index, hit in enumerate(hits, 1):
         lines.append("【" + str(index) + "】" + _source_label(hit))
-        lines.append(hit["text"])
+        lines.append(_excerpt(hit["text"]))
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -324,7 +340,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
     started = time.perf_counter()
 
     def emit(text: str, mode: str, detail: str = "", sources=None,
-             validation=None, risk_flags=None, structured=None,
+             validation=None, risk_flags=None, structured=None, candidates=None,
              intent: str = "", recall: int = 0, model_used: bool = False,
              marker: str = "") -> AgentResponse:
         validation_status = "未执行"
@@ -338,7 +354,8 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                      validation_status, elapsed_ms, marker)
         return _response(
             text, mode, detail, sources=sources, validation=validation,
-            risk_flags=risk_flags, structured=structured, request_id=request_id,
+            risk_flags=risk_flags, structured=structured, candidates=candidates,
+            request_id=request_id,
         )
 
     # ---------- 1) 安全边界：固定话术，不经过大模型 ----------
@@ -373,6 +390,19 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             intent="model_confirm",
         )
 
+    feature_hint = product_features.suggest(question)
+    if feature_hint:
+        options = "、".join(feature_hint["options"])
+        return emit(
+            "说明书没有明确提供名为“" + feature_hint["feature"] + "”的设置项。"
+            "你是指 " + options + " 中的哪一个？请确认具体功能后我再查。",
+            "功能确认",
+            "功能词需要确认：" + feature_hint["feature"],
+            validation={"ok": True, "problems": []},
+            risk_flags=["feature_ambiguity"],
+            intent="feature_confirm",
+        )
+
     # ---------- 2) 对话层：问候、能力询问、报告触发 ----------
     had_greeting, rest = social.split_leading_greeting(question)
     if had_greeting and len(rest) >= 4:
@@ -393,6 +423,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             intent="report",
         )
     intent, _ = social.classify(question)
+    social_intent = intent
     if intent == "report":
         payload = report.render(night)
         acceptance = payload["acceptance"]
@@ -451,13 +482,82 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             )
 
     doc_hits = product_kb.retrieve(question, top_k=3)
+    raw_doc_hits = list(doc_hits)
     if not doc_hits and product_priority:
         # 「面罩多久换」这类问题只匹配到一个词，覆盖率刚好不到严格阈值。
         # 产品提问信号明确时放宽一次，避免漏检；通用问题不会走到这里。
         doc_hits = product_kb.retrieve(question, top_k=3, min_score=3.0, min_coverage=0.2)
     doc_hits = product_kb.trim_low_relevance(doc_hits, question=question)
 
-    if has_time_ref and picked:
+    replacement_guidance = product_features.replacement_guidance(question, raw_doc_hits)
+    if replacement_guidance:
+        return emit(
+            replacement_guidance,
+            "产品文档（未覆盖）",
+            "未找到面罩固定更换周期",
+            validation={"ok": True, "problems": []},
+            risk_flags=["missing_field"],
+            intent=decision["goal"],
+        )
+
+    if (doc_hits and product_priority
+            and product_features.candidate_needed(
+        question, doc_hits[0].get("section", "")
+    )):
+        candidate_hits = [
+            hit for hit in raw_doc_hits
+            if hit.get("section") not in ("注意", "表格")
+            and product_features.candidate_matches(question, hit.get("section", ""))
+        ][:3] or raw_doc_hits[:3]
+        candidates = [{
+            "title": hit.get("section", ""),
+            "source": _source_label(hit),
+            "visibility": hit.get("visibility", ""),
+        } for hit in candidate_hits]
+        options = "\n".join(
+            str(index) + ". " + item["title"]
+            for index, item in enumerate(candidates, 1)
+        )
+        return emit(
+            "我不确定你具体指哪一项。找到以下几个可能相关的主题，"
+            "请回复具体主题后我再查：\n" + options,
+            "产品文档（需要确认）",
+            "章节名未直接匹配，返回候选主题",
+            sources=[item["source"] for item in candidates],
+            validation={"ok": None, "problems": []},
+            risk_flags=["needs_confirmation"],
+            candidates=candidates,
+            intent=decision["goal"],
+        )
+
+    llm_intent = None
+    intent_detail = "意图 " + decision["goal"]
+    if use_llm and social_intent is None and not doc_hits and not picked and not knowledge_hits:
+        llm_intent = intent_fallback.classify(question)
+        if llm_intent:
+            intent_detail += " / LLM意图:" + llm_intent["intent"]
+
+    if llm_intent and llm_intent["intent"] == "clarify":
+        return emit(
+            "我还不能确定你是想咨询产品使用、查看个人数据，还是生成报告。"
+            "请补充一下具体想了解什么。",
+            "意图确认",
+            intent_detail,
+            validation={"ok": True, "problems": []},
+            risk_flags=["intent_clarify"],
+            intent=llm_intent["intent"],
+        )
+    if llm_intent and llm_intent["intent"] == "out_of_scope":
+        return emit(social.OUT_OF_SCOPE_TEXT, "范围外", intent_detail,
+                    intent=llm_intent["intent"])
+
+    if llm_intent and llm_intent["intent"] == "product_docs":
+        mode = "产品文档"
+    elif llm_intent and llm_intent["intent"] == "device_data":
+        mode = "设备数据"
+    elif llm_intent and llm_intent["intent"] == "metric_explain":
+        mode = "指标解释"
+    elif has_time_ref and picked:
         mode = "设备数据"
     elif doc_hits and product_priority:
         mode = "产品文档"

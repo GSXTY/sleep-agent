@@ -38,13 +38,15 @@ python chat.py --report                     # 单晚治疗报告
 python -m unittest discover -s tests -v
 ```
 
-当前状态：214 项测试全部通过。
+当前状态：220 项测试全部通过。
 
 交付文档：
 
 - [版本说明](docs/VERSION_V1.md)
 - [测试报告](docs/TEST_REPORT_V1.md)
 - [接口契约](docs/INTERFACE_CONTRACT_V1.md)
+- [PRD V3.0](sleep_agent-prd-V3.docx)
+- [开发计划 V2.0](sleep_agent_dev_plan_v2.docx)
 
 ---
 
@@ -158,7 +160,7 @@ python run_checks.py              # 单元测试 + 检索评估
 python run_checks.py --verbose    # 附检索未命中清单
 ```
 
-当前：214 项测试通过，混合检索 R@1 95% / R@3 100%。
+当前：220 项测试通过，混合检索 R@1 95% / R@3 100%。
 **任何改动后都要跑一次，并核对用例数量**——数量对不上说明有测试没被收集到。
 
 ---

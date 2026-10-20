@@ -24,6 +24,7 @@
 | `detail` | string | 模式补充说明 |
 | `request_id` | string | 请求关联 ID |
 | `sources` | string[] | 知识库来源或事实 ID |
+| `candidates` | object[] | 需要用户确认的产品主题；通常为空 |
 | `tier` | string | `blocked` / `strong` / `medium` / `weak` / `none` |
 | `validation` | object | `{ok: boolean|null, problems: string[]}` |
 | `risk_flags` | string[] | 风险标记，如 `pressure`、`model_typo`、`validation_failed` |
@@ -101,6 +102,18 @@ Content-Type: application/json
 
 指标卡字段：`key`、`source_field`、`label`、`value`、`unit`、`display`、`provided`。
 缺失指标使用 `value=null`、`provided=false`、`display="未提供"`。
+
+产品问题没有直接章节命中时，响应可以使用 `candidates` 返回候选主题：
+
+```json
+{
+  "title": "九、故障排除 · 眼睛刺痛",
+  "source": "YA70主机说明书.docx · 九、故障排除 · 眼睛刺痛",
+  "visibility": "user"
+}
+```
+
+确认候选后再进入具体资料回答，候选本身不作为事实结论。
 
 ## 5. 日志契约
 

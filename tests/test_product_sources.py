@@ -47,7 +47,7 @@ class TestProductSources(unittest.TestCase):
         )
         self.assertTrue(result.mode.startswith("产品文档"), result.mode)
         self.assertIn("自动漏气补偿", result.text)
-        self.assertTrue(any("internal" in source or "11.1" in source for source in result.sources),
+        self.assertTrue(any("内部资料" in source or "11.1" in source for source in result.sources),
                         result.sources)
 
     def test_device_answer_does_not_cite_product_docs(self):

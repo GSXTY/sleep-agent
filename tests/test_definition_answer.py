@@ -30,6 +30,13 @@ class TestDefinitionAnswer(unittest.TestCase):
         self.assertNotIn("胸部不适", result.text)
         self.assertNotIn("电磁兼容", result.text)
 
+    def test_mask_replacement_without_section_returns_guidance(self):
+        result = pipeline.answer("面罩什么时候更换", self.night, [], use_llm=True)
+        self.assertEqual(result.mode, "产品文档（未覆盖）")
+        self.assertIn("没有给出面罩的固定更换周期", result.text)
+        self.assertNotIn("更换空气滤芯", result.text)
+        self.assertNotIn("单晚治疗报告（", result.text)
+
     def test_trim_keeps_close_scores(self):
         hits = [
             {"score": 0.02, "section": "A"},
@@ -50,6 +57,16 @@ class TestDefinitionAnswer(unittest.TestCase):
             "建议自行调整治疗压力。", "材料", mode="medium"
         )
         self.assertFalse(result["ok"])
+
+    def test_doc_fallback_is_excerpted(self):
+        text = pipeline._doc_fallback([{
+            "doc": "说明.docx",
+            "section": "系统设置",
+            "visibility": "user",
+            "text": "设置项。" * 300,
+        }])
+        self.assertLess(len(text), 900)
+        self.assertIn("后续内容已省略", text)
 
 
 if __name__ == "__main__":
