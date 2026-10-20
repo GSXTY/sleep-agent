@@ -30,7 +30,7 @@ def _trend_sentence(topic: str, trend: dict) -> str:
                 "因此无法给出趋势走势和持续性判断。")
     ahi_series = "、".join(str(n.get("ahi")) for n in nights if n.get("ahi") is not None)
     leak_series = "、".join(str(n.get("air_leakage_p95")) for n in nights if n.get("air_leakage_p95") is not None)
-    prefix = "多晚趋势：本次共 " + str(trend["count"]) + " 个有记录的夜晚，"
+    prefix = "多晚趋势：截至本晚共 " + str(trend["count"]) + " 个有记录的夜晚，"
 
     if topic == "respiratory-events":
         values = [n.get("ahi") for n in nights if n.get("ahi") is not None]

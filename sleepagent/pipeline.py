@@ -230,6 +230,12 @@ def _facts_for(user_id: str, night: nightdata.Night, decision: dict, question: s
 OVERALL_TERMS = ("整体", "总结", "概览", "总体", "复盘", "全部", "所有", "本晚", "这晚",
                  "数据怎么样", "看数据", "看看数据", "数据如何")
 
+PERIOD_REPORT_TERMS = (
+    "这一周", "本周", "这周", "最近一周", "近7天", "近七天", "近一周",
+    "上周", "这一月", "本月", "这月", "最近一月", "近30天", "近三十天",
+    "近一个月",
+)
+
 
 # 产品"怎么做"的提问信号：出现这些词时优先查产品资料，而不是走设备数据
 # 注意不要放裸的「怎么」——「今天天气怎么样」会因此被误判成产品提问
@@ -371,6 +377,21 @@ def answer(query: UserQuery | str, night: nightdata.Night,
     had_greeting, rest = social.split_leading_greeting(question)
     if had_greeting and len(rest) >= 4:
         question = rest
+    period_report = (
+        any(term in question for term in PERIOD_REPORT_TERMS)
+        and ("报告" in question or "周报" in question or "月报" in question)
+    )
+    if period_report:
+        return emit(
+            "当前版本只支持单晚治疗报告，近 7 天/近 30 天的周期报告暂未支持。"
+            "你可以指定某一晚，例如“生成 2026-10-15 的报告”，"
+            "我会按该晚及之前的数据生成单晚报告。",
+            "周期报告（未支持）",
+            "周期报告功能未实现",
+            validation={"ok": True, "problems": []},
+            risk_flags=["period_report_unsupported"],
+            intent="report",
+        )
     intent, _ = social.classify(question)
     if intent == "report":
         payload = report.render(night)
