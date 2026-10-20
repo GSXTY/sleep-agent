@@ -29,6 +29,7 @@ TOPIC_TERMS = (
     ("respiratory_rate", ("呼吸频率", "呼吸次数")),
     ("minute_ventilation", ("分钟通气量",)),
     ("breathing_overview", ("潮气量", "吸呼比", "吸气时间", "呼气时间", "呼吸概况")),
+    ("therapy_mode", ("治疗模式", "工作模式", "什么模式", "哪种模式", "模式")),
 )
 
 OUT_OF_SCOPE_TERMS = (

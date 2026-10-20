@@ -415,6 +415,20 @@ def answer(query: UserQuery | str, night: nightdata.Night,
     # 此时即使带「多久」这类产品提问词，也应该走设备数据
     has_time_ref = _has_time_ref(question)
 
+    if "therapy_mode" in decision["topics"] and has_time_ref:
+        actual_mode = night.raw.get("therapy_mode") or night.raw.get("mode")
+        if not actual_mode:
+            return emit(
+                "本晚数据没有提供治疗模式，无法确定昨晚实际使用的是 "
+                "CPAP、AutoCPAP、S 还是 AutoS。设备型号不能替代治疗模式记录。",
+                "设备数据（缺字段）",
+                "未提供 therapy_mode",
+                sources=["therapy_mode"],
+                validation={"ok": True, "problems": []},
+                risk_flags=["missing_field"],
+                intent=decision["goal"],
+            )
+
     doc_hits = product_kb.retrieve(question, top_k=3)
     if not doc_hits and product_priority:
         # 「面罩多久换」这类问题只匹配到一个词，覆盖率刚好不到严格阈值。

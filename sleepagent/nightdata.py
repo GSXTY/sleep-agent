@@ -127,6 +127,16 @@ def build_facts(user_id: str, night: Night) -> None:
             + str(r.get("resp_score", "未提供")) + "。",
             "treat_score / treat_duration_score / mask_score / resp_score", "直接取源字段原值")
 
+    therapy_mode = r.get("therapy_mode") or r.get("mode")
+    if therapy_mode is not None:
+        add("therapy-mode", "therapy_mode",
+            "本晚治疗模式为 " + str(therapy_mode) + "。",
+            "therapy_mode / mode", "直接取源字段")
+    else:
+        add("therapy-mode-missing", "therapy_mode",
+            "本晚数据未提供治疗模式，无法确定实际使用的是 CPAP、AutoCPAP、S 还是 AutoS。",
+            "therapy_mode / mode", "字段缺失；不使用 device_model 推断")
+
     # ---- 压力 ----
     p_avg = r.get("treat_pressure_avg")
     p_p95 = r.get("treat_pressure_p95")
