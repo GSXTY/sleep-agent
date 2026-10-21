@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>睡眠呼吸助手（演示版）</title>
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --text: #1d2430;
+    --muted: #6b7685;
+    --brand: #1f6feb;
+    --brand-soft: #e8f0fe;
+    --border: #e3e8ef;
+    --warn: #fff7e6;
+    --warn-border: #ffd591;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 12px 16px; display: flex; align-items: center; gap: 10px;
+    position: sticky; top: 0; z-index: 5;
+  }
+  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #34a853; }
+  header b { font-size: 16px; }
+  header .tag {
+    margin-left: auto; font-size: 12px; color: #ad6800;
+    background: var(--warn); border: 1px solid var(--warn-border);
+    padding: 2px 8px; border-radius: 999px;
+  }
+  #chat { flex: 1; overflow-y: auto; padding: 16px 14px 8px; }
+  .msg { display: flex; margin-bottom: 14px; }
+  .msg .bubble {
+    max-width: 88%; padding: 10px 13px; border-radius: 14px;
+    white-space: normal; word-break: break-word;
+  }
+  .assistant .bubble {
+    background: var(--card); border: 1px solid var(--border);
+    border-top-left-radius: 4px;
+  }
+  .user { justify-content: flex-end; }
+  .user .bubble {
+    background: var(--brand); color: #fff; border-top-right-radius: 4px;
+  }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .chip {
+    border: 1px solid #bcd2ff; background: var(--brand-soft); color: #174ea6;
+    padding: 7px 11px; border-radius: 999px; font-size: 13px; cursor: pointer;
+  }
+  .chip:active { transform: scale(.98); }
+  .suggest { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px 0; }
+  .suggest button {
+    background: #fff; border: 1px dashed #c8d3e0; color: #34445a;
+    padding: 7px 11px; border-radius: 10px; font-size: 13px; cursor: pointer;
+  }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin: 8px 0; }
+  .metric {
+    background: #f8fafc; border: 1px solid var(--border);
+    border-radius: 10px; padding: 8px 10px;
+  }
+  .metric .k { color: var(--muted); font-size: 12px; }
+  .metric .v { font-weight: 600; font-size: 16px; }
+  details { margin-top: 8px; font-size: 13px; color: var(--muted); }
+  details summary { cursor: pointer; }
+  .feedback { display: flex; gap: 10px; margin-top: 8px; font-size: 16px; }
+  .feedback span { cursor: pointer; opacity: .55; }
+  .feedback span:hover { opacity: 1; }
+  footer {
+    background: var(--card); border-top: 1px solid var(--border);
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  }
+  .disclaimer { font-size: 11px; color: var(--muted); margin-bottom: 8px; text-align: center; }
+  .composer { display: flex; gap: 8px; }
+  #input {
+    flex: 1; border: 1px solid var(--border); border-radius: 12px;
+    /* iOS 在输入框字号 <16px 时会自动放大页面，这里必须保持 16px */
+    padding: 10px 12px; font-size: 16px; line-height: 1.5;
+    outline: none; background: #fff;
+    touch-action: manipulation;
+  }
+  #input:focus { border-color: var(--brand); }
+  #send {
+    border: 0; background: var(--brand); color: #fff; border-radius: 12px;
+    padding: 0 18px; font-size: 15px; cursor: pointer;
+  }
+  #send:disabled { opacity: .5; }
+  .typing { color: var(--muted); font-size: 13px; }
+  .toast {
+    position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%);
+    background: rgba(0,0,0,.75); color: #fff; padding: 8px 14px;
+    border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot"></span>
+  <b>睡眠呼吸助手</b>
+  <span class="tag">演示版 · 非医疗诊断</span>
+</header>
+
+<main id="chat">
+  <div class="msg assistant">
+    <div class="bubble">
+      你好，我是睡眠呼吸产品助手。可以问我产品使用方法、指标含义，也可以查看治疗数据。
+      <div class="suggest">
+        <button data-q="我昨晚的 AHI 是多少">我昨晚的 AHI 是多少</button>
+        <button data-q="什么是 AHI">什么是 AHI</button>
+        <button data-q="面罩怎么清洁">面罩怎么清洁</button>
+        <button data-q="生成昨晚的报告">生成昨晚的报告</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="disclaimer">本分析仅供设备使用参考，不构成医疗诊断，参数调整请遵医嘱。</div>
+  <div class="composer">
+    <input id="input" placeholder="请输入问题…" autocomplete="off">
+    <button id="send">发送</button>
+  </div>
+</footer>
+<div id="toast" class="toast"></div>
+
+<script>
+const chatEl = document.getElementById('chat');
+const inputEl = document.getElementById('input');
+const sendEl = document.getElementById('send');
+const toastEl = document.getElementById('toast');
+
+const stored = localStorage.getItem('sleepagent_session');
+const sessionId = stored || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+localStorage.setItem('sleepagent_session', sessionId);
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+function formatText(text) {
+  let html = escapeHtml(text || '');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  return html.replace(/\n/g, '<br>');
+}
+
+function toast(message) {
+  toastEl.textContent = message;
+  toastEl.classList.add('show');
+  setTimeout(() => toastEl.classList.remove('show'), 1600);
+}
+
+function addMessage(role, html) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + role;
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.innerHTML = html;
+  wrap.appendChild(bubble);
+  chatEl.appendChild(wrap);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return bubble;
+}
+
+function renderMetrics(structured) {
+  const cards = (structured && structured.core_metric_cards) || [];
+  if (!cards.length) return '';
+  const items = cards.map(card => `
+    <div class="metric">
+      <div class="k">${escapeHtml(card.label || card.key || '')}</div>
+      <div class="v">${escapeHtml(card.display || '未提供')}</div>
+    </div>`).join('');
+  return `<div class="cards">${items}</div>`;
+}
+
+function renderResponse(data, question) {
+  let html = '<div>' + formatText(data.text) + '</div>';
+  if (data.structured) html = renderMetrics(data.structured) + html;
+
+  if (data.sources && data.sources.length) {
+    html += `<details><summary>查看来源</summary>${escapeHtml(data.sources.join('、'))}</details>`;
+  }
+  html += `<div class="meta">${escapeHtml(data.mode || '')}${data.detail ? ' · ' + escapeHtml(data.detail) : ''}</div>`;
+
+  if (data.candidates && data.candidates.length) {
+    html += '<div class="chips">' + data.candidates.map((item, index) =>
+      `<button class="chip" data-value="${escapeHtml(item.value || item.title || '')}">${
+        escapeHtml(item.title || item.value || '')}</button>`).join('') + '</div>';
+  }
+
+  html += `<div class="feedback" data-request="${escapeHtml(data.request_id || '')}"
+    data-question="${escapeHtml(question || '')}"
+    data-answer="${escapeHtml((data.text || '').slice(0, 800))}"
+    data-mode="${escapeHtml(data.mode || '')}">
+    <span data-rating="up" title="有帮助">👍</span>
+    <span data-rating="down" title="没帮助">👎</span>
+  </div>`;
+
+  const bubble = addMessage('assistant', html);
+  bindInteractive(bubble);
+}
+
+function bindInteractive(container) {
+  container.querySelectorAll('.chip').forEach(button => {
+    button.addEventListener('click', () => send(button.dataset.value));
+  });
+  container.querySelectorAll('.feedback span').forEach(span => {
+    span.addEventListener('click', () => {
+      fetch('/api/feedback', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          request_id: span.parentElement.dataset.request,
+          rating: span.dataset.rating,
+          session_id: sessionId,
+          question: span.parentElement.dataset.question,
+          answer: span.parentElement.dataset.answer,
+          mode: span.parentElement.dataset.mode
+        })
+      }).then(() => toast('感谢反馈'));
+    });
+  });
+}
+
+document.querySelectorAll('.suggest button').forEach(button => {
+  button.addEventListener('click', () => send(button.dataset.q));
+});
+
+async function send(message) {
+  message = (message || '').trim();
+  if (!message || sendEl.disabled) return;
+  addMessage('user', formatText(message));
+  inputEl.value = '';
+  inputEl.blur();          // 发送后收起键盘，用户点输入框时才重新弹出
+  sendEl.disabled = true;
+  const typing = addMessage('assistant', '<span class="typing">思考中…</span>');
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message, session_id: sessionId})
+    });
+    const payload = await response.json();
+    typing.closest('.msg').remove();
+    if (!payload || payload.code !== 0) {
+      addMessage('assistant', formatText('服务暂时不可用，请稍后再试。'));
+    } else {
+      renderResponse(payload.data, message);
+    }
+  } catch (error) {
+    typing.closest('.msg').remove();
+    addMessage('assistant', formatText('网络异常，请检查连接后重试。'));
+  } finally {
+    sendEl.disabled = false;
+  }
+}
+
+sendEl.addEventListener('click', () => send(inputEl.value));
+inputEl.addEventListener('keydown', event => {
+  if (event.key === 'Enter') send(inputEl.value);
+});
+</script>
+</body>
+</html>

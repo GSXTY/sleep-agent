@@ -38,7 +38,7 @@ python chat.py --report                     # 单晚治疗报告
 python -m unittest discover -s tests -v
 ```
 
-当前状态：309 项测试全部通过。
+当前状态：314 项测试全部通过。
 
 交付文档：
 
@@ -47,6 +47,7 @@ python -m unittest discover -s tests -v
 - [接口契约](docs/INTERFACE_CONTRACT_V1.md)
 - [产品资料维护规范](docs/DOC_AUTHORING_GUIDE.md)
 - [Bad Case 诊断与回流](docs/BADCASE_WORKFLOW.md)
+- [App 内嵌 Demo 指南](docs/DEMO_GUIDE.md)
 - [后端数据对接 · 沟通版](docs/BACKEND_DATA_BRIEF.md)
 - [后端数据对接](docs/BACKEND_DATA_API_V1.md)
 - [PRD V3.0](sleep_agent-prd-V3.docx)
@@ -188,9 +189,12 @@ python run_checks.py --verbose    # 附检索未命中清单
 python eval_agent.py              # 端到端行为评测（47 条典型提问，规则版）
 python eval_agent.py --llm        # 同上，真调大模型并检查校验闸门与耗时
 python eval_retrieval.py --diagnose   # 逐条诊断：召回、闸门还是排序问题
+python demo_server.py             # App 内嵌 Demo：http://127.0.0.1:8100
 ```
 
-当前：309 项测试通过，混合检索 R@1 96% / R@3 100%。
+也可以直接双击项目根目录的 `demo.cmd`，窗口会打印本机和手机访问地址。
+
+当前：314 项测试通过，混合检索 R@1 100% / R@3 100%。
 
 `eval_agent.py` 从入口层模拟真实提问，按类别检查模式、关键数字和选项，
 用来发现"单测全绿但整机答错"的问题。`--llm` 会额外统计模型耗时并把
@@ -517,6 +521,7 @@ run.cmd "滤芯多久换一次"
 ```
 
 如果不使用脚本而直接运行 `python chat.py` 出现中文乱码，先执行一次 `chcp 65001`。
+
 
 
 
