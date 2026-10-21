@@ -1,8 +1,9 @@
-# 睡眠呼吸产品助手（Windows 命令行版）
+# 睡眠呼吸产品助手（命令行 + App Demo）
 
 从原 Mac 项目 `sleep_ai_assistant` 重构而来，以 Windows 为基准环境。
 
-**只用 Python 标准库**：不需要 pip install，不需要联网（接云端模型时除外），不需要网页。
+**只用 Python 标准库**：不需要 pip install；命令行开箱可用，
+另带一个用于 App 评审的 H5 Demo（`demo_server.py`）。
 
 默认行为是一个通用助手，遇到产品相关的问题会去查产品资料再回答。
 
@@ -11,6 +12,22 @@
 ## 运行
 
 需要 Python 3.10 或以上。
+
+### App 评审 Demo（推荐先看这个）
+
+直接双击项目根目录的 `demo.cmd`，或：
+
+```powershell
+python demo_server.py
+```
+
+浏览器打开 `http://127.0.0.1:8100`；手机同一局域网访问时用
+`python demo_server.py --host 0.0.0.0`，地址会打印在窗口里。
+
+页面支持消息气泡、候选按钮、报告指标卡、来源折叠和 👍/👎 反馈。
+接法、评估清单和已知限制见 [App 内嵌 Demo 指南](docs/DEMO_GUIDE.md)。
+
+### 命令行
 
 ```powershell
 cd <本目录>
@@ -55,7 +72,7 @@ python -m unittest discover -s tests -v
 
 ---
 
-## 四种模式
+## 回答模式与判定顺序
 
 按下面的顺序判定，先命中的先执行：
 
@@ -68,6 +85,10 @@ python -m unittest discover -s tests -v
 | 5 | **设备数据** | 命中指标主题且事实层有数据 | 给出本晚真实数值 |
 | 6 | **指标解释** | 只命中知识条目 | 指标含义 + 限制 + 建议 |
 | 7 | **通用对话** | 其余问题 | 直接交给大模型 |
+
+此外还有三类不直接作答的交互：`时间确认`（昨天没有记录时问是不是最近一次使用）、
+`意图确认`（听不出要做什么时给四个方向）、`产品文档（未命中）`（给出近似章节候选）。
+多轮确认会记住上一轮，用户回“是的”即可继续。
 
 如果输入的是与已知型号只差一个字符的型号，例如 `Y70`、`Y70A`，系统会先进入
 “型号确认”，询问是否指 `YA70` 或 `YA70A`，不会直接拿错误型号去检索产品资料。
@@ -110,9 +131,14 @@ python -m unittest discover -s tests -v
 
 | 目录 | 用途 | 是否参与用户问答 |
 |---|---|---|
-| `product_docs/user/` | **对外资料**：官方说明书、从技术要求整理的规格 | 是 |
-| `product_docs/internal/` | 内部资料：注册用技术要求原件 | 是，回答时标注“内部资料” |
+| `product_docs/user/` | **对外资料**：说明书按主题拆分的 Markdown、产品规格、报告指标说明 | 是 |
+| `product_docs/internal/` | 内部资料：技术要求、报告数据使用规范 | 是，回答时标注“内部资料” |
 | `product_docs/examples/` | 早期示例文档（占位内容） | 是，回答时标注“示例资料” |
+| `product_docs/_originals/` | 原始 DOCX 归档 | **否**，仅供对照 |
+
+说明书已拆成 `00_产品规格` ~ `09_报告指标说明` 等主题文件；原始 DOCX 放在
+`_originals/`。检索目录**只放 Markdown**，同名原件即使还在目录里也会被跳过。
+新增文档请先按 [产品资料维护规范](docs/DOC_AUTHORING_GUIDE.md) 转成 MD。
 
 `examples/` 里的内容仍然是为演示编的（错误码、同步步骤、耗材周期都不是真实参数），
 来源会明确标为“示例资料”，不要把它们当作正式产品参数。正式用户问题会优先使用
@@ -224,12 +250,21 @@ python record_badcase.py --list
 
 ```
 chat.py                 命令行入口（只做参数解析与展示）
+demo_server.py          App Demo 服务：H5 页面 + /api/chat + 反馈
+demo_web/index.html     手机端聊天页（WebView 加载）
+eval_agent.py           端到端行为评测
+eval_retrieval.py       检索评测（--diagnose 逐条诊断）
+eval_cases.py           bad case 注册表读写
+record_badcase.py       记录一条 bad case
 sleepagent/pipeline.py  对话管线：路由 -> 事实/检索 -> 模型 -> 校验
 sleepagent/
   safety.py             安全边界（红旗/调压/诊断/停用/用药）
   runtime_info.py       日期时间（程序直答，注入提示词）
   social.py             问候、能力询问、报告触发
   router.py             意图与主题识别
+  intent_fallback.py    低置信度意图的大模型兜底
+  product_features.py   产品功能歧义确认、耗材更换说明
+  product_models.py     型号识别与检索前剥离
   product_kb.py         产品资料加载与混合检索入口
   bm25.py               BM25 稀疏检索
   embeddings.py         向量化客户端
@@ -242,6 +277,8 @@ sleepagent/
   validation.py         输出校验（三档强度）
   llm.py                大模型客户端
   logging_config.py     终端 + logs/agent.log 轮转日志
+tools/docx_to_md.py          DOCX -> Markdown（去目录、表格、自解释引用）
+tools/build_product_md.py    说明书按主题拆成多份 MD
 ```
 
 入口层只做转发，所有业务判定都在 `pipeline.py` 与各模块里，
@@ -299,13 +336,15 @@ python chat.py --verbose      # 输出路由、命中数、降级、校验不通
 
 | 你这么说 | 取哪一晚 |
 |---|---|
-| 昨晚使用情况 / 昨天用了多久 | 最近一晚 |
-| 前天用了多久 | 往前第 2 晚 |
-| 大前天 | 往前第 3 晚 |
-| 2026-10-11 的情况 / 10月13日怎么样 | 指定日期 |
+| 昨晚 / 昨天 | 系统日期的前一天；数据里没有就问“是不是最近一次使用” |
+| 前天 / 前晚 | 系统日期的前两天；没有则确认 |
+| 大前天 | 系统日期的前三天；没有则确认 |
+| 前一天 / 上一晚 | 数据里最新一晚的前一晚 |
+| 2026-10-11 的情况 / 10月13日怎么样 | 指定日期；数据里没有则提示 |
 | 没写时间 | 默认最近一晚 |
 
 生成报告时用**该晚 + 它之前的夜晚**（最多 7 晚）算趋势——不会用未来的数据。
+用户确认“是的”后，会把上一轮的问题替换成具体日期再回答。
 
 数据文件是 `data/sample_nights.json`，结构：
 
@@ -469,14 +508,29 @@ python chat.py "昨晚使用情况"
 ## 目录结构
 
 ```
-chat.py                     命令行入口与四模式管线
+chat.py                     命令行入口与多模式管线
+demo_server.py              App Demo 服务（H5 + API + 反馈）
+demo_web/                   移动端 H5 聊天页
+demo.cmd                    双击启动 Demo
+eval_agent.py               端到端行为评测（--llm 可测真模型）
+eval_retrieval.py           检索评测（--diagnose 诊断模式）
+eval/cases.jsonl            bad case 回流注册表
+eval_cases.py               注册表读写
+record_badcase.py           记录 bad case
 import_report_export.py     报告导出 CSV -> 内部契约 的转换层
+tools/docx_to_md.py         DOCX -> Markdown
+tools/build_product_md.py   说明书按主题拆分
 实现过程记录.md              结构说明与问题记录
+进度与交接.md                当前进度、基线、下一步
+docs/                       交付文档（Demo、后端接口、资料规范、bad case 流程）
 .local/                     真实数据与路径指针（已 gitignore）
-product_docs/               产品资料（放 .md / .txt / .docx）
+product_docs/user/          对外 Markdown（说明书主题文件、规格、指标说明）
+product_docs/internal/      内部 Markdown（技术要求、数据使用规范）
+product_docs/examples/      示例资料
+product_docs/_originals/    原始 DOCX 归档（不参与检索）
 config.json                 大模型配置（含密钥，已加入 .gitignore）
 sleepagent/
-  safety.py                 安全边界：红旗 / 调压 / 诊断 / 停用
+  safety.py                 安全边界：红旗 / 禁忌症 / 调压 / 诊断 / 停用
   social.py                 对话层：问候、能力询问、报告触发
   router.py                 意图与主题识别
   product_kb.py             产品文档加载与检索（含 docx 解析）
@@ -490,32 +544,42 @@ sleepagent/
   logging_config.py         日志配置：终端 + logs/agent.log
 knowledge/base.json         原项目的指标知识库，未改动
 contracts/report_analysis_acceptance.json   原项目的报告验收合同，未改动
-data/sample_night.json      样板数据（非真实病例）
-tests/                      自检
+data/sample_nights.json     样板数据（7 晚，非真实病例）
+tests/                      单元测试与接口测试
 ```
 
 ---
 
 ## 已知限制
 
-- **产品检索是启发式关键词匹配，不是向量检索。** 实测（含 YA70 产品规格）：
-  产品问题 19 个命中 17 个，通用问题 7 个 0 误判。
-  还有两个漏检（如「登录后别人能看到我的数据吗」），原因是问题词数与文档用词差异较大，
-  重合覆盖率不够。这类问题需要靠维护 `SYNONYMS` 同义词表或换 embedding 解决。
-- 中文按 bigram 切词会产生跨词边界的假 token（「今天天气怎么样」里的「气怎」
-  会撞上「喘不上气怎么办」），已用停用词表 + 内容词重合覆盖率挡住，但不是万无一失。
-- 通用对话回退时只给一句说明，没有兜底内容——因为通用问题本来就没有确定性答案。
-- 样板设备数据是构造的，不是真实病例。
-- 这仍然不是医疗器械功能：不下诊断、不判严重程度、不给调压建议。
+- **真实后台数据尚未接入。** 当前用 7 晚样板数据，报告字段接口已在
+  [后端数据对接](docs/BACKEND_DATA_API_V1.md) 中定义，等后端提供测试环境。
+- **检索依赖本地 Ollama。** 混合检索使用 `bge-m3`；不可用时自动降级为纯关键词，
+  准确率会下降但仍可用。
+- **图表未接。** 后台已有趋势图，Agent 目前返回文字与指标卡；图表接口或图片 URL 待定。
+- **Demo 不是生产服务。** 没有鉴权、限流、HTTPS，会话存在内存，只适合内网评审。
+- **WebView 页面是评审版。** 正式版建议原生聊天页，复用同一个 `/api/chat`。
+- 样板设备数据是构造的，不是真实病例；当前不构成医疗器械功能，
+  不下诊断、不判严重程度、不给调压建议。
 
 ---
 
 ## 启动脚本
 
-本目录下有一个 `run.cmd`，双击即可启动。它会自动把代码页切到 UTF-8 并切到本目录，
-避免中文乱码和路径问题。也可以命令行使用：
+本目录下有两个双击即可运行的脚本：
+
+| 脚本 | 用途 |
+|---|---|
+| `demo.cmd` | 启动 App 评审 Demo，打印本机与手机访问地址（默认 8100 端口） |
+| `run.cmd` | 启动命令行对话 |
+
+`demo.cmd` 可带端口参数：`demo.cmd 8101`。
+两个脚本都会自动切到 UTF-8 和本目录，避免中文乱码与路径问题。
+
+命令行也可以：
 
 ```
+demo.cmd 8100
 run.cmd
 run.cmd "滤芯多久换一次"
 ```
