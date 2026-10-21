@@ -16,6 +16,18 @@ def _canonical(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", text).upper()
 
 
+def strip_known_models(text: str) -> str:
+    """检索前去掉已知型号。
+
+    型号只是文档范围，不是内容关键词："YA70有哪些模式" 里，
+    "YA70" 会把"产品型号"章节顶到前面，反而找不到"1.3 工作模式"。
+    """
+    cleaned = text or ""
+    for model in sorted(KNOWN_MODELS, key=len, reverse=True):
+        cleaned = re.sub(re.escape(model), " ", cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
 def _edit_distance(left: str, right: str) -> int:
     """小型编辑距离；型号字符串很短，不需要额外依赖。"""
     previous = list(range(len(right) + 1))

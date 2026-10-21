@@ -29,6 +29,7 @@ from sleepagent import nightdata, pipeline
 from sleepagent.logging_config import configure_logging
 
 _nights = {}
+_datasets = {}
 
 
 def _current_night(user_id: str = nightdata.DEFAULT_USER_ID):
@@ -36,6 +37,12 @@ def _current_night(user_id: str = nightdata.DEFAULT_USER_ID):
     if user_id not in _nights:
         _nights[user_id] = nightdata.load_night(user_id)
     return _nights[user_id]
+
+
+def _dataset(user_id: str = nightdata.DEFAULT_USER_ID):
+    if user_id not in _datasets:
+        _datasets[user_id] = nightdata.load_dataset(user_id)
+    return _datasets[user_id]
 
 
 def make_handler():
@@ -77,10 +84,21 @@ def make_handler():
             use_llm = bool(body.get("use_llm", False))
             user_id = str(body.get("user_id") or "DEMO-USER")
             try:
+                nights = _dataset(user_id)
+                night = _current_night(user_id)
+                selection = nightdata.resolve_night(user_id, nights, question)
+                if selection.night is not None:
+                    night = selection.night
                 result = pipeline.answer(
-                    pipeline.UserQuery(question=question, use_llm=use_llm, user_id=user_id),
-                    _current_night(user_id),
+                    pipeline.UserQuery(
+                        question=question, use_llm=use_llm, user_id=user_id,
+                        time_status=selection.status, time_note=selection.note,
+                        available_dates=nightdata.dataset_dates(nights),
+                    ),
+                    night,
                 )
+                if result.mode.startswith(("设备数据", "报告生成")):
+                    result.detail = result.detail + " · " + selection.note
             except Exception as exc:  # 探针阶段：把异常转成结构化响应，便于定位
                 self._send(500, {"code": 500, "message": str(exc), "data": None})
                 return

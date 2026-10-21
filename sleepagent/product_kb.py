@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from .product_models import strip_known_models
+
 DOCS_DIR_NAME = "product_docs"
 # 默认检索 user、internal、examples 三个目录。
 # 来源会带上 visibility，入口层可以区分正式说明书、内部要求和示例资料。
@@ -178,6 +180,7 @@ def _chunk(doc_name: str, lines: list, visibility: str = VISIBILITY_USER) -> lis
     chunks = []
     section = doc_name
     buffer = []
+    field_header = ""
 
     def flush(section_override: str | None = None):
         if buffer:
@@ -193,6 +196,7 @@ def _chunk(doc_name: str, lines: list, visibility: str = VISIBILITY_USER) -> lis
         if _is_heading(line):
             flush()
             section = line.lstrip("# ").strip() or section
+            field_header = ""
             continue
         if " | " in line and "故障排除" in section:
             # 故障排除/规格表的一行通常就是一个独立事实。
@@ -202,11 +206,76 @@ def _chunk(doc_name: str, lines: list, visibility: str = VISIBILITY_USER) -> lis
             row_label = line.split(" | ", 1)[0].strip()
             flush(section + (" · " + row_label if row_label and len(row_label) <= 24 else ""))
             continue
+        if "|" in line:
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if "字段名" in cells:
+                # 字段释义表的表头；后续每行单独成片，避免 P95 被埋在整张表里
+                flush()
+                field_header = line
+                continue
+            if field_header and all(set(cell) <= {"-", ":"} for cell in cells if cell):
+                continue
+            if field_header:
+                flush()
+                label = cells[0][:24] if cells else ""
+                buffer.append(field_header)
+                buffer.append(line)
+                flush(section + (" · " + label if label else ""))
+                continue
         buffer.append(line)
+        if "|" not in line:
+            field_header = ""
         if sum(len(item) for item in buffer) >= CHUNK_CHARS:
             flush()
     flush()
+    _merge_intro_sections(chunks)
     return chunks
+
+
+INTRO_MERGE_LIMIT = 800
+
+
+def _section_depth(section: str):
+    """章节编号层级：1.3 -> 2，1.3.2 -> 3，无编号返回 None。"""
+    match = re.match(r"\s*(\d+(?:\.\d+)*)", section or "")
+    if not match:
+        return None
+    return match.group(1).count(".") + 1
+
+
+def _merge_intro_sections(chunks: list) -> None:
+    """把只有一句引导语的父章节与后续子章节合并。
+
+    「1.3工作模式」正文只有"本系列设备具备以下几种工作模式："，
+    CPAP / AutoCPAP / S / AutoS 的说明在后续子章节里。
+    不合并的话，问"产品模式有哪些"只能拿到那句引导语。
+    """
+    merged = []
+    index = 0
+    while index < len(chunks):
+        current = chunks[index]
+        text = current.text.strip()
+        depth = _section_depth(current.section)
+        if depth and len(text) <= 40 and text.endswith(("：", ":")):
+            body = [current.text]
+            cursor = index + 1
+            while cursor < len(chunks):
+                nxt = chunks[cursor]
+                next_depth = _section_depth(nxt.section)
+                if next_depth is not None and next_depth <= depth:
+                    break
+                if sum(len(item) for item in body) + len(nxt.text) > INTRO_MERGE_LIMIT:
+                    break
+                label = nxt.section.strip()
+                # 子章节名本身是信息（CPAP / AutoCPAP / S / AutoS），合并时必须保留
+                body.append((label + "：" if label and len(label) <= 24 else "") + nxt.text)
+                cursor += 1
+            if cursor > index + 1:
+                current.text = "\n".join(body)
+                # 子章节仍保留：单独问「双水平」时还要能命中 1.3.2
+        merged.append(current)
+        index += 1
+    chunks[:] = merged
 
 
 @lru_cache(maxsize=1)
@@ -214,9 +283,16 @@ def load_chunks() -> tuple:
     directory = docs_dir()
     if not directory.is_dir():
         return tuple()
+    # 原件归档目录：同名的 DOCX 即使还留在 user/internal（例如被 Word 占用），
+    # 也不再参与检索，避免 MD 与原件重复入库。
+    archive = directory / "_originals"
+    archived = ({path.name.lower() for path in archive.iterdir() if path.is_file()}
+                if archive.is_dir() else set())
     chunks = []
     for path in sorted(directory.rglob("*")):
         if not path.is_file() or path.suffix.lower() not in SUPPORTED_SUFFIXES:
+            continue
+        if path.name.lower() in archived:
             continue
         rel_parts = [part.lower() for part in path.relative_to(directory).parts[:-1]]
         # 只认 user/ 与 internal/ 两个子目录（以及直接放在根目录的文件）；
@@ -243,12 +319,68 @@ def load_chunks() -> tuple:
 def reload_chunks() -> None:
     load_chunks.cache_clear()
     _sparse_cache.clear()
+    section_numbers.cache_clear()
+
+
+@lru_cache(maxsize=1)
+def section_numbers() -> frozenset:
+    """语料里真实存在的章节号（1.1、6.4、5.2.1.3…）。
+
+    模型引用章节号时会出现 1.1、6.4 这类数字，它们不是测量值；
+    用真实章节号做白名单，比猜"这个数字是不是编号"可靠。
+    """
+    numbers = set()
+    for chunk in load_chunks():
+        match = re.match(r"\s*(\d+(?:\.\d+)*)", chunk.section or "")
+        if match and "." in match.group(1):
+            # 只收多级编号（1.1、6.4、5.2.1.3）。
+            # 单层数字 1、2 既可能是章节号，也可能是测量值，放进白名单会放过"每天 2 次"。
+            numbers.add(match.group(1))
+    return frozenset(numbers)
 
 
 # ---------- 检索 ----------
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", "", text.lower())
+
+
+MODE_QUERY_HINT = re.compile(r"(哪些|哪几种|几种|什么).{0,4}模式|模式.{0,6}(有哪些|有哪几种|有什么)")
+PRODUCT_WORDS = ("产品", "型号", "机器", "设备", "呼吸机")
+GLOSSARY_DOC = "报告指标说明"
+GLOSSARY_HINTS = ("什么是", "是什么", "什么意思", "含义", "字段", "指标", "解释", "定义")
+
+
+def _normalize_query(question: str) -> str:
+    """把"产品模式有哪些"规范成"工作模式有哪些"。
+
+    报告字段说明里也有"治疗模式类"章节，不规范的话会和说明书的
+    「1.3 工作模式」抢第一名。
+    """
+    text = question or ""
+    if "模式" not in text or "工作模式" in text:
+        return text
+    if "字段" in text:          # "治疗模式有哪些字段" 问的是报告字段，不是产品模式
+        return text
+    if not MODE_QUERY_HINT.search(text):
+        return text
+    if any(word in text for word in PRODUCT_WORDS) or len(text) <= 10:
+        return text.replace("模式", "工作模式", 1)
+    return text
+
+
+def _wants_glossary(question: str) -> bool:
+    """只有定义/字段类问题才让报告字段说明参与检索。
+
+    否则"面罩怎么清洁"会被字段表的"面罩得分"抢走。
+    """
+    return any(term in (question or "") for term in GLOSSARY_HINTS)
+
+
+def _drop_glossary(hits: list, wanted: bool) -> list:
+    if wanted:
+        return hits
+    return [hit for hit in hits if GLOSSARY_DOC not in str(hit.get("doc", ""))]
 
 
 def _tokens(text: str) -> set:
@@ -481,6 +613,32 @@ def _hit_key(hit: dict) -> tuple:
     return (hit.get("doc"), hit.get("section"), hit.get("index"))
 
 
+def _section_core(section: str) -> str:
+    """去掉章节编号，只留标题本身：1.1工作原理 -> 工作原理，六、清洁和保养 -> 清洁和保养。"""
+    core = re.sub(r"^\s*(?:\d+(?:\.\d+)*|[一二三四五六七八九十]+)\s*[.、)）]?\s*",
+                  "", section or "")
+    return _normalize(core)
+
+
+def prefer_title_match(question: str, hits: list) -> list:
+    """提问里原样出现了某章节标题时，把该章节提到最前。
+
+    用户说“产品工作原理”，标题「1.1工作原理」是原文命中，比向量相似度更可信；
+    RRF 只融合名次、不看分数，向量路的排序会把这种精确命中压下去。
+    """
+    normalized = _normalize(question)
+    if not normalized or not hits:
+        return hits
+    matched, rest = [], []
+    for hit in hits:
+        core = _section_core(hit.get("section", ""))
+        if len(core) >= 3 and core in normalized:
+            matched.append(hit)
+        else:
+            rest.append(hit)
+    return matched + rest if matched else hits
+
+
 def trim_low_relevance(hits: list, min_ratio: float = 0.5, question: str = "") -> list:
     """定义类问题只保留与第一名分数接近的切片，避免长文档噪声。"""
     if not hits:
@@ -502,14 +660,16 @@ def _retrieve_base(question: str, top_k: int, min_score, min_coverage,
     lexical = lexical_search(question, top_k=10, min_score=min_score,
                              min_coverage=min_coverage, visibility=visibility)
     if not hybrid:
-        return lexical[:top_k]
+        return prefer_title_match(question, lexical)[:top_k]
     dense = dense_search(question, top_k=10, visibility=visibility)
     if not dense:
         if log_degrade:
             logger.warning("[DEGRADE] degraded_to_lexical visibility=%s", visibility)
-        return lexical[:top_k]
-    return _rrf_fuse([lexical, dense], top_k=top_k,
-                     weights=retrieval_constants.RRF_WEIGHTS)
+        return prefer_title_match(question, lexical)[:top_k]
+    # 先多融合几条，再按标题原文命中重排，最后截断
+    fused = _rrf_fuse([lexical, dense], top_k=max(top_k * 3, top_k),
+                      weights=retrieval_constants.RRF_WEIGHTS)
+    return prefer_title_match(question, fused)[:top_k]
 
 
 def retrieve(question: str, top_k: int = 3, min_score: float = None,
@@ -521,18 +681,22 @@ def retrieve(question: str, top_k: int = 3, min_score: float = None,
     再用 internal/examples 补齐。这样内部资料和示例资料可被引用，
     但不会把正式说明书挤出前几条。
     """
+    question = _normalize_query(strip_known_models(question))
+    wanted = _wants_glossary(question)
+    pool = top_k if wanted else max(top_k * 3, 3)
     if visibility != VISIBILITY_ALL:
-        return _retrieve_base(question, top_k, min_score, min_coverage,
+        hits = _retrieve_base(question, pool, min_score, min_coverage,
                               visibility, hybrid)
+        return _drop_glossary(hits, wanted)[:top_k]
 
-    user_hits = _retrieve_base(question, top_k, min_score, min_coverage,
+    user_hits = _retrieve_base(question, pool, min_score, min_coverage,
                                 VISIBILITY_USER, hybrid, log_degrade=False)
-    if len(user_hits) >= top_k:
+    if len(user_hits) >= pool:
         if not embeddings.available():
             logger.warning("[DEGRADE] degraded_to_lexical visibility=all")
-        return user_hits[:top_k]
+        return _drop_glossary(user_hits, wanted)[:top_k]
 
-    all_hits = _retrieve_base(question, top_k, min_score, min_coverage,
+    all_hits = _retrieve_base(question, pool, min_score, min_coverage,
                               VISIBILITY_ALL, hybrid)
     merged = []
     seen = set()
@@ -542,9 +706,38 @@ def retrieve(question: str, top_k: int = 3, min_score: float = None,
             continue
         seen.add(key)
         merged.append(hit)
-        if len(merged) >= top_k:
+        if len(merged) >= pool:
             break
-    return merged
+    return _drop_glossary(merged, wanted)[:top_k]
+
+
+def related_hits(question: str, top_k: int = 3) -> list:
+    """近似但未达命中线的内容，只用于向用户提供「你是指」候选。
+
+    这里刻意不使用严格闸门：要的是「最接近的几个主题」，
+    不是可以当作答案引用的证据。返回结果不得进入回答正文。
+    """
+    if not question.strip() or top_k <= 0:
+        return []
+    question = _normalize_query(strip_known_models(question))
+    lexical = lexical_search(question, top_k=10, min_score=0, min_coverage=0,
+                             visibility=VISIBILITY_ALL)
+    dense = dense_search(question, top_k=10, visibility=VISIBILITY_ALL)
+    if dense:
+        ranked = _rrf_fuse([lexical, dense], top_k=top_k * 3,
+                           weights=retrieval_constants.RRF_WEIGHTS)
+    else:
+        ranked = lexical
+    picked, seen = [], set()
+    for hit in ranked:
+        section = str(hit.get("section", "")).strip()
+        if not section or section in seen or section in ("注意", "表格"):
+            continue
+        seen.add(section)
+        picked.append(hit)
+        if len(picked) >= top_k:
+            break
+    return picked
 
 
 def render(hits: list) -> str:

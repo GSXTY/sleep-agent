@@ -12,6 +12,14 @@
 | `history` | list | 否 | 最近对话，默认空列表 |
 | `use_llm` | boolean | 否 | 是否允许调用聊天模型，默认 `true` |
 | `user_id` | string | 否 | 用户边界，默认 `DEMO-USER` |
+| `time_status` | string | 否 | 时间解析状态：`resolved` / `missing_date` / `stale_relative` / `ambiguous` / `none` |
+| `time_note` | string | 否 | 时间解析说明；`ambiguous` 时是命中的模糊词 |
+| `available_dates` | string[] | 否 | 当前可用的治疗夜日期，用于日期选项 |
+
+`time_status` 由入口层调用 `nightdata.resolve_night()` 得到。凡是
+`missing_date`、`stale_relative` 或 `ambiguous`，管线都会返回「时间确认」，
+不会用最近一晚顶替。`stale_relative` 表示相对日期按系统日期算出来了
+（例如「昨天」= 2026-10-19），但数据里没有这一晚，需要确认是不是最近一次使用。
 
 当前数据源仍为单用户，真实多用户接入时在 `nightdata.load_dataset/load_night` 内部按 `user_id` 查询。
 
@@ -24,7 +32,7 @@
 | `detail` | string | 模式补充说明 |
 | `request_id` | string | 请求关联 ID |
 | `sources` | string[] | 知识库来源或事实 ID |
-| `candidates` | object[] | 需要用户确认的产品主题；通常为空 |
+| `candidates` | object[] | 需要用户确认的下一步选项（日期/意图/主题）；通常为空 |
 | `tier` | string | `blocked` / `strong` / `medium` / `weak` / `none` |
 | `validation` | object | `{ok: boolean|null, problems: string[]}` |
 | `risk_flags` | string[] | 风险标记，如 `pressure`、`model_typo`、`validation_failed` |
@@ -103,17 +111,39 @@ Content-Type: application/json
 指标卡字段：`key`、`source_field`、`label`、`value`、`unit`、`display`、`provided`。
 缺失指标使用 `value=null`、`provided=false`、`display="未提供"`。
 
-产品问题没有直接章节命中时，响应可以使用 `candidates` 返回候选主题：
+### `candidates` 选项契约
+
+三种场景共用同一结构，前端可以直接渲染成按钮或气泡，点击后把 `value`
+当作下一轮 `question` 发回即可（也可以让用户手动输入）。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `type` | string | `date`（可选治疗夜）/ `intent`（方向）/ `topic`（资料章节） |
+| `title` | string | 展示文案，保持简短 |
+| `value` | string | 回传内容，点击后作为下一轮问题 |
+| `source` | string | 资料出处；`date`、`intent` 为空串 |
+| `visibility` | string | `user` / `internal` / `examples`；非 `topic` 为空串 |
+
+示例：
 
 ```json
-{
-  "title": "九、故障排除 · 眼睛刺痛",
-  "source": "YA70主机说明书.docx · 九、故障排除 · 眼睛刺痛",
-  "visibility": "user"
-}
+[
+  {"type": "topic", "title": "六、清洁和保养",
+   "value": "六、清洁和保养",
+   "source": "YA70主机说明书.docx · 六、清洁和保养", "visibility": "user"}
+]
 ```
 
-确认候选后再进入具体资料回答，候选本身不作为事实结论。
+| 触发场景 | `mode` | `risk_flags` | 选项来源 |
+|---|---|---|---|
+| 意图不明确 | `意图确认` | `intent_clarify` | 固定四个方向 |
+| 时间说不清 | `时间确认` | `needs_date_confirmation` | `available_dates` |
+| 昨天/前天没有记录 | `时间确认` | `needs_date_confirmation` | 最近一次使用 + 最近两晚 |
+| 有检索但章节不对 | `产品文档（需要确认）` | `needs_confirmation` | 匹配到的章节 |
+| 检索完全没命中 | `产品文档（未命中）` | `needs_topic_confirmation` | `product_kb.related_hits()` 近似章节 |
+| 近似章节也没有 | `资料未覆盖` | `no_material` | 固定四个方向 |
+
+候选只用于引导，本身不作为事实结论；用户选定后重新走一遍完整检索与校验。
 
 ## 5. 日志契约
 

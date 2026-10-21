@@ -135,7 +135,8 @@ class TestProductKb(unittest.TestCase):
     def test_loads_real_docs(self):
         stats = product_kb.stats()
         self.assertGreaterEqual(len(stats["user_documents"]), 2)
-        self.assertTrue(any("说明书" in name for name in stats["user_documents"]))
+        self.assertTrue(any(word in name for name in stats["user_documents"]
+                            for word in ("说明书", "产品说明", "使用指南")))
         self.assertGreater(stats["chunks"], 20)
 
     def test_hits_maintenance_question(self):
@@ -530,20 +531,25 @@ class TestNightSelection(unittest.TestCase):
     def setUp(self):
         self.nights = nightdata.load_dataset()
 
-    def _pick(self, question):
-        night, _ = nightdata.select_night(nightdata.DEFAULT_USER_ID, self.nights, question)
+    def _pick(self, question, today=None):
+        night, _ = nightdata.select_night(
+            nightdata.DEFAULT_USER_ID, self.nights, question, today=today)
         return str(night.raw["record_date"]) if night else None
 
     def test_latest_by_default(self):
         self.assertEqual(self._pick("帮我看看"), "2026-10-15")
 
-    def test_yesterday(self):
-        self.assertEqual(self._pick("昨晚使用情况"), "2026-10-15")
-        self.assertEqual(self._pick("昨天用了多久"), "2026-10-15")
+    def test_yesterday_resolves_only_when_data_has_it(self):
+        import datetime
+        # 数据到 10-15：系统日期 10-16 时，昨晚正好有记录
+        self.assertEqual(self._pick("昨晚使用情况", datetime.date(2026, 10, 16)), "2026-10-15")
+        # 系统日期 10-20 时，昨晚是 10-19，数据里没有，不能拿 10-15 顶替
+        self.assertIsNone(self._pick("昨晚使用情况", datetime.date(2026, 10, 20)))
+        self.assertIsNone(self._pick("前天用了多久", datetime.date(2026, 10, 20)))
 
-    def test_day_before_yesterday(self):
-        self.assertEqual(self._pick("前天用了多久"), "2026-10-14")
-        self.assertEqual(self._pick("大前天怎么样"), "2026-10-13")
+    def test_day_before_wording_stays_data_relative(self):
+        self.assertEqual(self._pick("前一天用了多久"), "2026-10-14")
+        self.assertEqual(self._pick("上一晚怎么样"), "2026-10-14")
 
     def test_explicit_date(self):
         self.assertEqual(self._pick("2026-10-11 的情况"), "2026-10-11")
@@ -572,8 +578,8 @@ class TestSelectionRouting(unittest.TestCase):
         return self.chat.answer(question, night or self.nights[-1], [], use_llm=False)
 
     def test_time_ref_beats_howto_word(self):
-        # 「前天用了多久」带「多久」这个产品提问词，但问的是用户数据
-        self.assertIn("设备数据", self._mode("前天用了多久")["mode"])
+        # 「前一天用了多久」带「多久」这个产品提问词，但问的是用户数据
+        self.assertIn("设备数据", self._mode("前一天用了多久")["mode"])
 
     def test_date_question_without_metric_word(self):
         self.assertIn("设备数据", self._mode("2026-10-11 的情况")["mode"])
@@ -582,7 +588,7 @@ class TestSelectionRouting(unittest.TestCase):
         self.assertIn("产品文档", self._mode("滤芯多久换一次")["mode"])
 
     def test_usage_wording_is_recognized(self):
-        self.assertIn("设备数据", self._mode("昨晚使用情况")["mode"])
+        self.assertIn("设备数据", self._mode("最近使用情况")["mode"])
 
 
 class TestHeadingDetection(unittest.TestCase):
@@ -669,21 +675,22 @@ class TestBM25(unittest.TestCase):
 class TestRetrievalQuality(unittest.TestCase):
     """把检索质量固定成断言，防止改动后悄悄退步。
 
-    当前基线：现有关键词 R@1 = 81%，R@3 = 85%。
+    当前基线：现有关键词 R@1 = 70%，R@3 = 85%（27 条用例）。
     这里用「至少不能比基线差太多」的阈值，避免把具体数字焊死。
     """
 
     def test_keyword_retrieval_recall(self):
         import eval_retrieval
         chunks = [chunk for chunk in product_kb.load_chunks() if chunk.visibility == "user"]
+        cases = eval_retrieval.all_cases()
         hits = 0
-        for question, expected in eval_retrieval.CASES:
+        for question, expected in cases:
             results = product_kb.retrieve(question, top_k=1)
             words = expected if isinstance(expected, list) else [expected]
             if results and any(word in str(results[0].get("section", "")) for word in words):
                 hits += 1
-        ratio = hits / len(eval_retrieval.CASES)
-        # 当前实测 68%（真实资料 97 个切片）；跌破 60% 说明明显退步
+        ratio = hits / len(cases)
+        # 当前实测 70%；跌破 60% 说明明显退步
         self.assertGreaterEqual(ratio, 0.60, "稀疏检索 R@1 跌破 60%：" + str(round(ratio * 100)) + "%")
 
 

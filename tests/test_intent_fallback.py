@@ -48,7 +48,9 @@ class TestIntentFallback(unittest.TestCase):
         ):
             result = pipeline.answer("这个东西怎么弄", self.night, [], use_llm=True)
         self.assertEqual(result.mode, "意图确认")
-        self.assertIn("请补充", result.text)
+        self.assertIn("你需要的是", result.text)
+        self.assertEqual(len(result.candidates), 4)
+        self.assertEqual({item["type"] for item in result.candidates}, {"intent"})
         self.assertIn("LLM意图:clarify", result.detail)
 
 

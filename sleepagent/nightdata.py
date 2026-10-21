@@ -9,6 +9,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+import datetime
 
 from . import formatting
 
@@ -288,23 +289,146 @@ def coverage_fact(user_id: str, night: Night) -> "Fact":
                 "统计可用夜晚的数量与日期范围")
 
 
-def select_night(user_id: str, nights: list, question: str, today=None):
-    """按提问里的时间词挑选治疗夜。
+# 日历相对词：以系统日期为准。用户说「昨天」就是日历上的昨天；
+# 数据里没有这一天时要先确认是不是「上一次使用」，不能拿最近一晚顶替。
+# 顺序敏感：「大前天」必须排在「前天」之前，否则会被更短的词抢先命中。
+CALENDAR_WORDS = (
+    (("大前天", "三天前"), 3),
+    (("前天", "前晚"), 2),
+    (("昨晚", "昨天"), 1),
+)
 
-    返回 (Night | None, 说明)。说明会写进回答的元信息，让用户知道用的是哪一晚。
+# 数据相对词：以数据集里最新一晚为基准。
+# 「前一天」在对话里指上一条记录的前一晚，不是日历上的昨天。
+RELATIVE_OFFSETS = (
+    (("前两天",), 2),
+    (("前一个晚上", "前一天", "前一晚", "上一天", "上一晚"), 1),
+    (("最近", "最新", "这几天", "近几天"), 0),
+)
+
+# 有明显时间指向、但换算不出具体某一天的词。遇到这些词要问清楚日期，
+# 不能默默按「最近一晚」回答，否则用户会以为结果就是自己问的那一晚。
+VAGUE_TIME_WORDS = (
+    "那天", "哪天", "哪一晚", "哪晚", "某天", "某晚", "某一天",
+    "上周", "上个星期", "上星期", "这周", "本周", "这个星期",
+    "上个月", "本月", "这个月", "月初", "月底",
+    "几天前", "前些天", "前段时间", "之前那晚",
+)
+
+# 只有提问在问「我的数据」时才需要确认日期；
+# 否则「上周买的面罩怎么清洁」会被误拦成时间确认。
+DATA_HINT_WORDS = (
+    "报告", "数据", "使用", "用了", "睡了", "睡眠", "治疗", "时长",
+    "漏气", "呼吸", "压力", "ahi", "事件", "评分", "得分", "趋势",
+    "情况", "怎么样", "如何", "统计", "查看", "看下", "看看",
+)
+
+
+@dataclass
+class NightSelection:
+    """一次时间指代的解析结果。
+
+    status 取值：
+      resolved     —— 已定位到具体某一晚
+      missing_date —— 用户给了日期，但数据里没有这一晚
+      stale_relative —— 相对日期按系统日期算出来了，但数据里没有（例如昨天没记录）
+      ambiguous    —— 出现了时间词，但换算不出具体哪一晚
+      none         —— 完全没有时间指代，按默认最近一晚
+    """
+
+    night: Night | None
+    note: str
+    status: str = "none"
+
+
+def relative_offset(text: str):
+    for words, offset in RELATIVE_OFFSETS:
+        if any(word in text for word in words):
+            return offset
+    return None
+
+
+def calendar_word(text: str):
+    """命中的日历相对词及其偏移天数；没命中返回 (None, None)。"""
+    for words, days in CALENDAR_WORDS:
+        for word in words:
+            if word in text:
+                return word, days
+    return None, None
+
+
+def vague_time_word(text: str):
+    for word in VAGUE_TIME_WORDS:
+        if word in text:
+            return word
+    return None
+
+
+def looks_like_data_query(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(word in lowered for word in DATA_HINT_WORDS)
+
+
+def dataset_dates(nights: list) -> list:
+    """数据集里所有可用日期，升序去重。"""
+    dates = {str(item.raw.get("record_date")) for item in nights
+             if item.raw.get("record_date")}
+    return sorted(dates)
+
+
+def night_dates(night: Night) -> list:
+    """某一晚及其历史里可用的日期，升序去重。"""
+    records = list(night.history) + [night.raw]
+    dates = {str(item.get("record_date")) for item in records
+             if item.get("record_date")}
+    return sorted(dates)
+
+
+def format_dates(dates, limit: int = 8) -> str:
+    ordered = sorted({str(item) for item in (dates or []) if item})
+    if not ordered:
+        return "（暂无可用日期）"
+    if len(ordered) <= limit:
+        return "、".join(ordered)
+    return "、".join(ordered[:2] + ["…"] + ordered[-(limit - 2):])
+
+
+def time_clarification(status: str, note: str, dates) -> str:
+    """时间说不清楚时的固定问询话术，不经过大模型。"""
+    available = format_dates(dates)
+    total = len(sorted({str(item) for item in (dates or []) if item}))
+    if status == "stale_relative":
+        ordered = sorted({str(item) for item in (dates or []) if item})
+        latest = ordered[-1] if ordered else "（暂无记录）"
+        return ("数据里没有" + (note or "这一天") + "的记录。最近一次使用是 " + latest + "。\n"
+                "你是想看这一晚吗？也可以直接给日期，例如「" + latest + "」。")
+    if status == "missing_date":
+        head = note or "你给的日期在数据里没有记录。"
+    else:
+        head = "你说的「" + (note or "这个时间") + "」我还对应不到具体某一晚。"
+    return (head + "\n请直接给日期，例如「2026-10-14」或「10月14日」。"
+            "当前可用的夜晚共 " + str(total) + " 晚：" + available + "。")
+
+
+def resolve_night(user_id: str, nights: list, question: str,
+                  today=None) -> NightSelection:
+    """解析提问里的时间指代，返回结构化结果。
+
+    与 `select_night` 的区别：能区分「数据里没有这一天」和「听不出是哪一天」，
+    让管线可以追问日期，而不是默默用最近一晚作答。
     """
     if not nights:
         raise ValueError("数据集中没有任何治疗夜")
 
-    text = re.sub(r"\s+", "", question)
+    text = re.sub(r"\s+", "", question or "")
 
     match = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
     if match:
         target = "%04d-%02d-%02d" % (int(match.group(1)), int(match.group(2)), int(match.group(3)))
         for night in nights:
             if str(night.raw.get("record_date")) == target:
-                return night, "按指定日期取 " + target
-        return None, "数据里没有 " + target + " 的记录"
+                return NightSelection(night, "按指定日期取 " + target, "resolved")
+        return NightSelection(None, "数据里没有 " + target + " 的记录。", "missing_date")
 
     match = re.search(r"(\d{1,2})月(\d{1,2})日?", text)
     if match:
@@ -312,26 +436,53 @@ def select_night(user_id: str, nights: list, question: str, today=None):
         for night in nights:
             parts = str(night.raw.get("record_date", "")).split("-")
             if len(parts) == 3 and int(parts[1]) == month and int(parts[2]) == day:
-                return night, "按指定日期取 " + str(night.raw.get("record_date"))
-        return None, "数据里没有 " + str(month) + " 月 " + str(day) + " 日的记录"
+                return NightSelection(night, "按指定日期取 " + str(night.raw.get("record_date")),
+                                      "resolved")
+        return NightSelection(None, "数据里没有 " + str(month) + " 月 " + str(day) + " 日的记录。",
+                              "missing_date")
 
-    offset = None
-    if "大前天" in text or "三天前" in text:
-        offset = 2
-    elif "前天" in text or "前晚" in text:
-        offset = 1
-    elif any(word in text for word in ("昨晚", "昨天", "最近", "最新", "这几天", "近几天")):
-        offset = 0
+    word, days = calendar_word(text)
+    if word:
+        moment = today if isinstance(today, datetime.date) else datetime.date.today()
+        if isinstance(moment, datetime.datetime):
+            moment = moment.date()
+        target_text = (moment - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+        for night in nights:
+            if str(night.raw.get("record_date")) == target_text:
+                return NightSelection(night, "按日期取 " + target_text, "resolved")
+        # 系统日期说这是昨天，但数据里没有这一晚：问清楚，不拿最近一晚顶替
+        return NightSelection(None, word + "（" + target_text + "）", "stale_relative")
 
+    offset = relative_offset(text)
     if offset is not None:
         index = len(nights) - 1 - offset
         if index < 0:
-            return nights[0], "数据里只有 " + str(len(nights)) + " 晚，已取最早的一晚"
+            return NightSelection(nights[0],
+                                  "数据里只有 " + str(len(nights)) + " 晚，已取最早的一晚",
+                                  "resolved")
         chosen = nights[index]
         label = "最近一晚" if offset == 0 else ("往前第 " + str(offset + 1) + " 晚")
-        return chosen, label + "：" + str(chosen.raw.get("record_date"))
+        return NightSelection(chosen, label + "：" + str(chosen.raw.get("record_date")),
+                              "resolved")
 
-    return nights[-1], "未指定时间，默认最近一晚：" + str(nights[-1].raw.get("record_date"))
+    vague = vague_time_word(text)
+    if vague and looks_like_data_query(text):
+        # note 只放命中的那个词，由 time_clarification 组织成完整问句
+        return NightSelection(None, vague, "ambiguous")
+
+    return NightSelection(nights[-1],
+                          "未指定时间，默认最近一晚：" + str(nights[-1].raw.get("record_date")),
+                          "none")
+
+
+def select_night(user_id: str, nights: list, question: str, today=None):
+    """按提问里的时间词挑选治疗夜。
+
+    返回 (Night | None, 说明)。说明会写进回答的元信息，让用户知道用的是哪一晚。
+    需要区分「没这一天」和「听不出是哪一天」时用 `resolve_night`。
+    """
+    selection = resolve_night(user_id, nights, question, today=today)
+    return selection.night, selection.note
 
 
 def facts_by_topic(user_id: str, night: Night, topic: str) -> list:

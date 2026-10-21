@@ -27,7 +27,7 @@ class TestUserScope(unittest.TestCase):
 
     def test_select_night_carries_user_id(self):
         nights = nightdata.load_dataset("USER-A")
-        night, _ = nightdata.select_night("USER-A", nights, "昨晚")
+        night, _ = nightdata.select_night("USER-A", nights, "最近")
         self.assertEqual(night.user_id, "USER-A")
 
     def test_data_helpers_accept_user_id(self):

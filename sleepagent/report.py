@@ -65,6 +65,11 @@ def _trend_sentence(topic: str, trend: dict) -> str:
             "没有出现持续单向抬升。")
 
 
+def trend_sentence(topic: str, trend: dict) -> str:
+    """对外暴露的趋势句式，供设备数据模式复用报告里的同一套口径。"""
+    return _trend_sentence(topic, trend)
+
+
 def build_modules(night: nightdata.Night) -> dict:
     trend = nightdata.trend_summary(night.user_id, night)
     modules = {}

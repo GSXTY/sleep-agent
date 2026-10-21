@@ -9,7 +9,7 @@
     python import_report_export.py --latest          # 最近一个达到可用时长的夜晚
 
 已知的数据问题（都在导出侧，不在本脚本）：
-  1. 压力类字段列名写 hPa，实际是原始缩放值，必须 /100
+  1. 压力类字段列名写 hPa，实际单位是 Pa，必须 /100 换算（435 Pa = 4.35 hPa）
   2. 大量记录只有几分钟治疗时长，属于碎片记录，不适合出报告
   3. 次数类字段填充率低（11%~28%），但对应的指数是 100%，不能把空当 0
 """
@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sleepagent import nightdata, report
 
-PRESSURE_DIVISOR = 100.0     # 导出里的压力是原始缩放值
+PRESSURE_DIVISOR = 100.0     # 导出压力单位是 Pa，÷100 得到 hPa
 LOCAL_DIR = Path(__file__).resolve().parent / ".local"
 POINTER = LOCAL_DIR / "report_export.path"
 # 真实数据不进仓库（沿用原项目约定）：导出文件用 .local/report_export.path 指向外部路径

@@ -37,6 +37,22 @@ MEDICATION_TERMS = ("吃什么药", "吃点什么药", "用什么药", "服什�
 STOP_TERMS = ("停用", "不用了", "不想戴", "不戴了", "停药", "停止治疗", "今晚不用", "可以不用",
               "停几天", "停一阵", "停一停", "先停", "暂停使用", "停掉", "歇几天")
 
+# 说明书"二、禁忌症"：绝对禁忌症命中即固定话术，不依赖检索。
+# 这类问题一旦检索漏召回，模型就可能给出"资料未说明"的错误印象，风险太高。
+ABSOLUTE_CONTRAINDICATIONS = (
+    "气胸", "纵隔气肿", "脑脊液漏", "颅脑外伤", "颅内积气",
+    "休克", "鼻出血", "上消化道出血", "昏迷", "声带息肉",
+)
+RELATIVE_CONTRAINDICATIONS = (
+    "冠心病", "左心衰", "中耳炎", "分泌物多", "自主呼吸弱",
+    "气管插管", "气管切开", "鼻塞", "肺大泡", "面罩过敏",
+)
+USE_INTENT_TERMS = (
+    "可以使用", "能用", "可以用", "能不能用", "可以戴", "能不能戴",
+    "适合", "适宜", "可以用吗", "能用吗", "能戴吗",
+)
+HAVE_TERMS = ("我有", "患有", "得了", "得过", "我是")
+
 
 # PRD 4.6.1 要求拦截后给出统一回复。各类别的话术更具体，但都以此句收尾，
 # 保证「统一口径」这条要求被字面满足，同时不牺牲针对性。
@@ -82,6 +98,20 @@ STOP_REPLY = (
     "如果是因为佩戴不适想暂停，我们可以先找原因：漏气、压痕、干燥或难以入睡都有对应的处理办法。"
 )
 
+ABSOLUTE_CONTRA_REPLY = (
+    "这属于本设备说明书列出的**绝对禁忌症**。说明书原文：绝对禁忌症包括气胸、纵隔气肿、"
+    "脑脊液漏、颅脑外伤或颅内积气、各种原因引起且未纠正的休克、鼻出血活动期、"
+    "未得到有效控制的上消化道出血、昏迷或不能配合治疗、巨大声带息肉等。\n"
+    "使用者有以下病症时不宜使用本设备；必须使用时，应由医生决定是否使用。"
+    "请不要自行开始或继续使用，先联系您的主治医生评估。"
+)
+
+RELATIVE_CONTRA_REPLY = (
+    "这属于本设备说明书列出的**相对禁忌症**。说明书原文：使用者有以下病症时，"
+    "不宜使用本设备；必须使用时，应由医生决定是否使用本设备。\n"
+    "是否使用请先咨询您的主治医生，不要自行决定。"
+)
+
 
 def _with_standard(reply: str) -> str:
     """给分类话术补上统一收尾句；已经包含时不重复追加。"""
@@ -100,6 +130,18 @@ def check(question: str) -> Verdict:
     if any(term in normalized for term in URGENT_TERMS):
         hit = next(term for term in URGENT_TERMS if term in normalized)
         return Verdict("urgent", URGENT_REPLY, "命中紧急症状关键词：" + hit)
+
+    # 禁忌症优先于普通产品问答：绝对禁忌症只要提到就按固定话术回答
+    absolute = next((term for term in ABSOLUTE_CONTRAINDICATIONS if term in normalized), None)
+    if absolute:
+        return Verdict("contraindication_absolute", ABSOLUTE_CONTRA_REPLY,
+                       "命中绝对禁忌症：" + absolute)
+
+    relative = next((term for term in RELATIVE_CONTRAINDICATIONS if term in normalized), None)
+    if relative and (any(term in normalized for term in USE_INTENT_TERMS)
+                     or any(term in normalized for term in HAVE_TERMS)):
+        return Verdict("contraindication_relative", RELATIVE_CONTRA_REPLY,
+                       "命中相对禁忌症：" + relative)
 
     asks_for = any(term in normalized for term in CHANGE_VERBS)
     about_pressure = any(term in normalized for term in PRESSURE_TERMS)

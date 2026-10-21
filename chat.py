@@ -47,6 +47,7 @@ from sleepagent.pipeline import (  # noqa: F401  保持 chat.<name> 对外可用
     _facts_for,
     _has_time_ref,
     answer,
+    resolve_pending_confirmation,
 )
 
 if __package__ in (None, ""):
@@ -71,6 +72,41 @@ BANNER = """睡眠呼吸产品助手（命令行版）
   /help       显示本帮助
   /quit       退出
 """
+
+
+def history_messages(question: str, result, night=None) -> list:
+    """把一轮问答压成写进对话历史的条目。
+
+    报告正文有几千字，而且带着具体数值。整段存进历史有两个后果：
+    一是挤占 10 轮上下文，二是模型会把别的轮次（往往是别的夜晚）的数字
+    抄进当前回答，被校验闸门判为「材料中没有的数字」。
+    所以报告类回答只留一句占位，数值不回灌历史。
+    """
+    structured = getattr(result, "structured", None)
+    mode = str(getattr(result, "mode", ""))
+    if structured or mode.startswith("报告生成"):
+        date = ""
+        if isinstance(structured, dict):
+            date = str(structured.get("record_date") or "")
+        if not date and night is not None:
+            date = str(night.raw.get("record_date") or "")
+        note = ("已生成" + (date + " 的" if date else "") + "单晚治疗报告。"
+                "报告里的具体数值不放进对话历史；用户追问细节时，重新生成报告或指定日期。")
+        return [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": note},
+        ]
+    return [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": result.text},
+    ]
+
+
+def option_hint(result) -> str:
+    """命令行里把可选项列出来，用户可以直接照着输入。"""
+    picks = [item.get("title", "") for item in (result.candidates or [])
+             if item.get("type") in ("date", "topic") and item.get("title")]
+    return "  [可选] " + " / ".join(picks) if picks else ""
 
 
 def build_status(use_llm: bool, *, chat_ready: bool | None = None,
@@ -145,15 +181,23 @@ def main(argv: list) -> int:
 
     if args:
         question = " ".join(args)
-        selected, note = nightdata.select_night(user_id, nights, question)
-        if selected is not None:
-            night = selected
-        result = answer(UserQuery(question=question, use_llm=use_llm, user_id=user_id), night)
+        selection = nightdata.resolve_night(user_id, nights, question)
+        if selection.night is not None:
+            night = selection.night
+        result = answer(
+            UserQuery(question=question, use_llm=use_llm, user_id=user_id,
+                      time_status=selection.status, time_note=selection.note,
+                      available_dates=nightdata.dataset_dates(nights)),
+            night,
+        )
         if result.mode.startswith(("设备数据", "报告生成")):
-            result.detail = result.detail + " · " + note
+            result.detail = result.detail + " · " + selection.note
         print(result.text)
         print("")
         print("  [模式] " + result.mode + " | " + result.detail)
+        hint = option_hint(result)
+        if hint:
+            print(hint)
         if result.sources:
             print("  [来源] " + "、".join(result.sources))
         return 0
@@ -249,22 +293,29 @@ def main(argv: list) -> int:
                 print("用法：/llm 查看 | /llm on | /llm off | /llm test")
             continue
 
-        selected, note = nightdata.select_night(user_id, nights, question)
-        if selected is not None:
-            night = selected
+        question, pending_note = resolve_pending_confirmation(question, history)
+        selection = nightdata.resolve_night(user_id, nights, question)
+        if selection.night is not None:
+            night = selection.night
         result = answer(UserQuery(question=question, history=history,
-                                  use_llm=use_llm, user_id=user_id), night)
+                                  use_llm=use_llm, user_id=user_id,
+                                  time_status=selection.status,
+                                  time_note=selection.note,
+                                  available_dates=nightdata.dataset_dates(nights)), night)
         if result.mode.startswith(("设备数据", "报告生成")):
-            result.detail = result.detail + " · " + note
+            detail_note = pending_note or selection.note
+            result.detail = result.detail + " · " + detail_note
         print("")
         print(result.text)
         print("")
         print("  [模式] " + result.mode + " | " + result.detail)
+        hint = option_hint(result)
+        if hint:
+            print(hint)
         if result.sources:
             print("  [来源] " + "、".join(result.sources))
         print("")
-        history.append({"role": "user", "content": question})
-        history.append({"role": "assistant", "content": result.text})
+        history.extend(history_messages(question, result, night))
 
     print("再见。")
     return 0

@@ -1,0 +1,7 @@
+{"id":"bc-20261020-mode-inverted","query":"YA70模式有哪些","expected_mode":"产品文档","expected_section":"1.3工作模式","expected_contains":["AutoCPAP"],"source":"线上","date":"2026-10-20","note":"倒装问法，曾走到设备数据"}
+{"id":"bc-20261020-mode-question","query":"产品模式有哪些","expected_mode":"产品文档","expected_section":"1.3工作模式","expected_contains":["AutoS"],"source":"线上","date":"2026-10-20","note":"曾被 therapy_mode 主题带走"}
+{"id":"bc-20261020-principle","query":"产品工作原理","expected_mode":"产品文档","expected_section":"1.1工作原理","expected_contains":["正压"],"source":"线上","date":"2026-10-20","note":"曾被 1.3 工作模式抢占"}
+{"id":"bc-20261020-pneumothorax","query":"我有气胸可以使用吗","expected_mode":"安全边界","expected_section":"","expected_contains":["绝对禁忌症"],"source":"线上","date":"2026-10-20","note":"检索被覆盖率闸门挡掉，已改为安全边界"}
+{"id":"bc-20261020-eye-pain","query":"为什么眼睛有点痛","expected_mode":"产品文档","expected_section":"眼睛刺痛","expected_contains":["鼻罩"],"source":"线上","date":"2026-10-20","note":"曾被分条编号 2 误判"}
+{"id":"bc-20261020-bilevel","query":"双水平是什么意思","expected_mode":"产品文档","expected_section":"双水平模式","expected_contains":["IPAP"],"source":"线上","date":"2026-10-20","note":"曾把否定式安全提醒误判成调压建议"}
+{"id":"bc-20261021-mediastinum","query":"我得了纵隔气肿还能用吗","expected_mode":"安全边界","expected_section":"","expected_contains":["绝对禁忌症"],"source":"线上","date":"2026-10-21","note":"绝对禁忌症，新增回流用例"}
