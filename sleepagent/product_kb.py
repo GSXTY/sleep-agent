@@ -521,7 +521,8 @@ def _sparse(visibility: str) -> dict:
 
 def lexical_search(question: str, top_k: int = 10, min_score: float = None,
                    min_coverage: float = None,
-                   visibility: str = VISIBILITY_ALL) -> list:
+                   visibility: str = VISIBILITY_ALL,
+                   allowed_docs=None) -> list:
     """稀疏检索：BM25 + 章节名加成 + 覆盖率闸门。"""
     if not question.strip() or top_k <= 0:
         return []
@@ -531,6 +532,11 @@ def lexical_search(question: str, top_k: int = 10, min_score: float = None,
     hits = sparse["index"].search(question, top_k=RETRIEVAL_POOL)
     if not hits:
         return []
+    if allowed_docs:
+        allowed = {str(name).lower() for name in allowed_docs}
+        hits = [hit for hit in hits if str(hit.get("doc", "")).lower() in allowed]
+        if not hits:
+            return []
 
     normalized_question = _normalize(question)
     question_tokens = _content_tokens(question)
@@ -593,7 +599,8 @@ def _rrf_fuse(ranked_lists: list, top_k: int, weights=None, k: int = None) -> li
     return fused
 
 
-def dense_search(question: str, top_k: int = 10, visibility: str = VISIBILITY_ALL):
+def dense_search(question: str, top_k: int = 10, visibility: str = VISIBILITY_ALL,
+                 allowed_docs=None):
     """稠密（向量）检索。模型不可用或索引建不起来时返回 None。"""
     if not embeddings.available():
         return None
@@ -606,7 +613,11 @@ def dense_search(question: str, top_k: int = 10, visibility: str = VISIBILITY_AL
     entries = vector_index.ensure(chunks, embeddings.embed, cfg["model"])
     if not entries:
         return None
-    hits = vector_index.search(query_vector, top_k=top_k, visibility=visibility, entries=entries)
+    pool = top_k if not allowed_docs else top_k * 3
+    hits = vector_index.search(query_vector, top_k=pool, visibility=visibility, entries=entries)
+    if allowed_docs:
+        allowed = {str(name).lower() for name in allowed_docs}
+        hits = [hit for hit in hits if str(hit.get("doc", "")).lower() in allowed]
     # 没有这条过滤，余弦会把任何问题都排出一个结果，导致所有提问都命中产品文档
     passed = [hit for hit in hits if hit["score"] >= retrieval_constants.DENSE_MIN_SCORE]
     return passed or None
@@ -659,12 +670,15 @@ def trim_low_relevance(hits: list, min_ratio: float = 0.5, question: str = "") -
 
 
 def _retrieve_base(question: str, top_k: int, min_score, min_coverage,
-                   visibility: str, hybrid: bool, log_degrade: bool = True) -> list:
+                   visibility: str, hybrid: bool, log_degrade: bool = True,
+                   allowed_docs=None) -> list:
     lexical = lexical_search(question, top_k=10, min_score=min_score,
-                             min_coverage=min_coverage, visibility=visibility)
+                             min_coverage=min_coverage, visibility=visibility,
+                             allowed_docs=allowed_docs)
     if not hybrid:
         return prefer_title_match(question, lexical)[:top_k]
-    dense = dense_search(question, top_k=10, visibility=visibility)
+    dense = dense_search(question, top_k=10, visibility=visibility,
+                         allowed_docs=allowed_docs)
     if not dense:
         if log_degrade:
             logger.warning("[DEGRADE] degraded_to_lexical visibility=%s", visibility)
@@ -677,7 +691,7 @@ def _retrieve_base(question: str, top_k: int, min_score, min_coverage,
 
 def retrieve(question: str, top_k: int = 3, min_score: float = None,
              min_coverage: float = None, visibility: str = VISIBILITY_ALL,
-             hybrid: bool = True) -> list:
+             hybrid: bool = True, allowed_docs=None) -> list:
     """混合检索入口：稀疏 + 稠密，RRF 融合。
 
     visibility=all 时优先保证正式 user 资料；user 命中不足 top_k 时，
@@ -689,18 +703,19 @@ def retrieve(question: str, top_k: int = 3, min_score: float = None,
     pool = max(top_k * 3, 3)
     if visibility != VISIBILITY_ALL:
         hits = _retrieve_base(question, pool, min_score, min_coverage,
-                              visibility, hybrid)
+                              visibility, hybrid, allowed_docs=allowed_docs)
         return _drop_glossary(hits, wanted)[:top_k]
 
     user_hits = _retrieve_base(question, pool, min_score, min_coverage,
-                                VISIBILITY_USER, hybrid, log_degrade=False)
+                                VISIBILITY_USER, hybrid, log_degrade=False,
+                                allowed_docs=allowed_docs)
     if len(user_hits) >= pool:
         if not embeddings.available():
             logger.warning("[DEGRADE] degraded_to_lexical visibility=all")
         return _drop_glossary(user_hits, wanted)[:top_k]
 
     all_hits = _retrieve_base(question, pool, min_score, min_coverage,
-                              VISIBILITY_ALL, hybrid)
+                              VISIBILITY_ALL, hybrid, allowed_docs=allowed_docs)
     merged = []
     seen = set()
     for hit in user_hits + all_hits:

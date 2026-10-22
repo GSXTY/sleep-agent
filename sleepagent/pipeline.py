@@ -16,7 +16,7 @@ from pathlib import Path
 
 from sleepagent import (embeddings, intent_fallback, knowledge, llm, nightdata,
                         product_features, product_kb, product_models, report, router,
-                        runtime_info, safety, social, validation)
+                        runtime_info, safety, service_intent, social, validation)
 from sleepagent.router import route
 
 logger = logging.getLogger("sleepagent.pipeline")
@@ -836,13 +836,31 @@ def answer(query: UserQuery | str, night: nightdata.Night,
 
     # 问「产品模式有哪些」时用「工作模式」检索：说明书里的章节叫「1.3工作模式」
     search_question = "工作模式有哪些" if _asks_product_modes(question) else question
-    doc_hits = product_kb.retrieve(search_question, top_k=3)
+    service = service_intent.detect(search_question)
+    allowed_docs = service["scope"] if service["confidence"] >= 0.7 else None
+    doc_hits = product_kb.retrieve(search_question, top_k=3,
+                                   allowed_docs=allowed_docs)
     raw_doc_hits = list(doc_hits)
     if not doc_hits and product_priority:
         # 「面罩多久换」这类问题只匹配到一个词，覆盖率刚好不到严格阈值。
         # 产品提问信号明确时放宽一次，避免漏检；通用问题不会走到这里。
         doc_hits = product_kb.retrieve(search_question, top_k=3,
-                                       min_score=3.0, min_coverage=0.2)
+                                       min_score=3.0, min_coverage=0.2,
+                                       allowed_docs=allowed_docs)
+    if not doc_hits and allowed_docs and service["confidence"] < 0.9:
+        # 子库判断不够有把握时，退回全库再找一次
+        doc_hits = product_kb.retrieve(search_question, top_k=3)
+
+    # 错误码/型号类实体必须真实出现在命中内容里，否则视为没有资料
+    codes = re.findall(r"(?<![A-Za-z0-9])[A-Za-z]\d{1,3}(?![A-Za-z0-9])", question)
+    if codes and doc_hits:
+        joined = "\n".join(
+            str(hit.get("section", "")) + " " + str(hit.get("text", ""))
+            for hit in doc_hits
+        ).lower()
+        if not all(code.lower() in joined for code in codes):
+            doc_hits = []
+            raw_doc_hits = []
     doc_hits = product_kb.trim_low_relevance(doc_hits, question=question)
 
     # 定义类问题优先用字段说明（09_报告指标说明.md），而不是说明书里顺带提到该词的段落
@@ -954,6 +972,15 @@ def answer(query: UserQuery | str, night: nightdata.Night,
     if (wants_product_help and not doc_hits and not knowledge_hits
             and not (has_time_ref and picked)):
         related = product_kb.related_hits(question, top_k=3)
+        if codes:
+            # 错误码只认真实产品资料，示例资料里的 E3 是占位内容
+            related = [
+                hit for hit in related
+                if str(hit.get("visibility")) != "examples"
+                and all(code.lower() in (
+                    str(hit.get("section", "")) + " " + str(hit.get("text", ""))
+                ).lower() for code in codes)
+            ]
         if related:
             candidates = [
                 _option("topic", hit.get("section", ""), hit.get("section", ""),
@@ -966,7 +993,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                 for index, item in enumerate(candidates, 1)
             )
             return emit(
-                "资料里没有和这个问题直接对应的内容。你是指下面这些吗？\n" + options
+                "正式产品资料里没有和这个问题直接对应的内容。你是指下面这些吗？\n" + options
                 + "\n直接回复主题名称（或点选上面的选项），我再按那一条查；"
                   "也可以把问题说得更具体些。",
                 "产品文档（未命中）",
@@ -979,7 +1006,8 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                 recall=len(related),
             )
         return emit(
-            "资料里没有找到和这个问题相关的内容，我不猜。你需要的是？\n"
+            "正式产品资料里没有找到和这个问题相关的内容，我不会猜。"
+            "如果是设备报错或故障，建议联系客服或售后确认。你需要的是？\n"
             "产品使用与故障排查 / 看治疗数据 / 生成单晚报告 / 解释指标含义，"
             "说一个方向，或者换个说法再问。",
             "资料未覆盖",

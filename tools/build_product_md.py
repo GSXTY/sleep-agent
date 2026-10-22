@@ -131,6 +131,16 @@ def relocate_appendix(outputs: dict) -> dict:
     return outputs
 
 
+def fix_section_names(outputs: dict) -> dict:
+    """说明书 1.5「产品规格」实际只列颜色，改成「外观颜色」避免误命中。"""
+    guide = outputs.get("01_产品说明.md")
+    if guide:
+        outputs["01_产品说明.md"] = (guide
+                                     .replace("### 1.5产品规格", "### 1.5外观颜色")
+                                     .replace("## 1.5产品规格", "## 1.5外观颜色"))
+    return outputs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="拆分说明书为多份 Markdown")
     parser.add_argument("--write", action="store_true")
@@ -153,6 +163,7 @@ def main() -> int:
 
     outputs["08_常见问题.md"] = build_faq(chapters)
     outputs = relocate_appendix(outputs)
+    outputs = fix_section_names(outputs)
 
     for filename, content in outputs.items():
         print("  " + filename.ljust(18) + str(len(content)).rjust(6) + " 字")

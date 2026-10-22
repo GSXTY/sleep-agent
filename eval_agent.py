@@ -110,6 +110,8 @@ CASES = [
     Case("产品文档", "YA70A 是什么产品", modes=("产品文档",), contains=("正压",)),
     Case("产品文档", "YA70A 的噪声是多少", modes=("产品文档",), contains=("28",)),
     Case("产品文档", "主机也能生成报告吗", modes=("产品文档",), contains=("默认可显示",)),
+    Case("产品文档", "E3 报错怎么处理", modes=("资料未覆盖",),
+         contains=("正式产品资料里没有",)),
     Case("产品文档", "双水平是什么意思", modes=("产品文档",), contains=("IPAP",)),
     Case("产品文档", "为什么眼睛有点痛", modes=("产品文档",), contains=("眼睛刺痛",)),
     Case("产品文档", "湿化器怎么消毒", modes=("产品文档",), contains=("消毒",)),
