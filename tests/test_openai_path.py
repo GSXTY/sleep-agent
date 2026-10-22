@@ -15,6 +15,8 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
+from urllib.error import URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -55,7 +57,9 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send(200, {
             "choices": [{"message": {"role": "assistant",
-                                     "content": "你的平均治疗压力是 4.35 hPa，P95 是 5 hPa。"}}]
+                                     "content": "你的平均治疗压力是 4.35 hPa，P95 是 5 hPa。"}}],
+            "usage": {"prompt_tokens": 88, "completion_tokens": 16,
+                      "total_tokens": 104},
         })
 
 
@@ -103,11 +107,26 @@ class TestOpenAICompatiblePath(unittest.TestCase):
         from sleepagent import llm
         result = llm.chat([{"role": "user", "content": "问"}])
         self.assertIn("4.35", result["content"])
+        self.assertEqual(result["usage"]["input_tokens"], 88)
+        self.assertEqual(result["usage"]["output_tokens"], 16)
 
     def test_models_probe_succeeds(self):
         from sleepagent import llm
         self.assertTrue(llm.available())
         self.assertIn("连通正常", llm.test_connection())
+
+    def test_refused_proxy_retries_directly(self):
+        import urllib.request
+        from sleepagent import llm
+        request = urllib.request.Request("https://example.test/v1/models")
+        response = object()
+        with mock.patch.object(
+            urllib.request, "urlopen",
+            side_effect=URLError(ConnectionRefusedError(10061, "actively refused")),
+        ), mock.patch.object(urllib.request, "build_opener") as build_opener:
+            build_opener.return_value.open.return_value = response
+            self.assertIs(llm._open_request(request, timeout=1), response)
+        build_opener.assert_called_once()
 
     def test_bad_key_gives_readable_message(self):
         from sleepagent import llm
@@ -187,7 +206,9 @@ class TestOpenAICompatiblePath(unittest.TestCase):
         with mock.patch.object(chat.llm, "chat", return_value=fake):
             result = chat.answer("滤芯多久换一次", nightdata.load_night(), [], use_llm=True)
         self.assertTrue(result["mode"].endswith("规则版）"), result["mode"])
-        self.assertIn("我在产品资料里查到", result["text"])
+        self.assertIn("滤芯", result["text"])
+        self.assertNotIn("根据《", result["text"])
+        self.assertTrue(result["sources"])
 
 
 if __name__ == "__main__":

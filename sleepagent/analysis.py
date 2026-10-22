@@ -9,11 +9,14 @@ import datetime as dt
 import math
 import statistics
 
+from . import formatting
+
 DEFAULT_WINDOW_DAYS = 30
 RECENT_PERIOD_DAYS = 7
 FRAGMENT_MINUTES = 240
 
 METRICS = (
+    ("设备评分", "treat_score", "分"),
     ("使用时长", "treat_time_minutes", "分钟"),
     ("AHI", "ahi", "次/小时"),
     ("平均治疗压力", "treat_pressure_avg", "hPa"),
@@ -22,6 +25,30 @@ METRICS = (
     ("平均呼吸频率", "respiratory_rate_avg", "次/分钟"),
     ("平均分钟通气量", "minute_ventilation_avg_lpm", "L/min"),
 )
+
+SCORE_COMPONENTS = (
+    ("duration", "时长得分", "treat_duration_score",
+     "使用时长", "treat_time_minutes", "分钟"),
+    ("mask", "面罩得分", "mask_score",
+     "P95 漏气", "air_leakage_p95", "L/min"),
+    ("events", "呼吸事件得分", "resp_score",
+     "AHI", "ahi", "次/小时"),
+)
+
+SCORE_COMPONENT_GUIDANCE = {
+    "duration": {
+        "meaning": "时长得分反映同一晚的治疗使用时长，时长越长，该项通常越高。",
+        "advice": "核对是否为分段使用或上传不完整，并保持完整记录。",
+    },
+    "mask": {
+        "meaning": "面罩得分反映面罩佩戴密封性和漏气记录。",
+        "advice": "面罩分下降或漏气升高时，检查面罩贴合、头带和管路接口。",
+    },
+    "events": {
+        "meaning": "呼吸事件得分反映同一晚 AHI 和呼吸事件记录。",
+        "advice": "结合连续多晚 AHI 观察；持续升高或明显不适时咨询专业人员。",
+    },
+}
 
 
 def detect_window_days(question: str, default: int = DEFAULT_WINDOW_DAYS) -> int:
@@ -263,6 +290,201 @@ def _data_quality(records: list, start, end) -> dict:
     }
 
 
+def _score_breakdown(records: list, result: dict) -> dict:
+    """拆解设备总分变化，并把分项与同晚使用/漏气/事件记录对齐。"""
+    current = records[-1] if records else {}
+    previous = records[-2] if len(records) >= 2 else {}
+    current_date = _date(current.get("record_date"))
+    previous_date = _date(previous.get("record_date"))
+    if previous_date and current_date and (current_date - previous_date).days == 1:
+        previous_label = "上一晚"
+    elif previous_date:
+        previous_label = "上一条有记录夜晚（" + previous_date.isoformat() + "）"
+    else:
+        previous_label = "上一条有记录夜晚"
+    score = _number(current.get("treat_score"))
+    previous_score = _number(previous.get("treat_score"))
+    components = []
+    suggestions = []
+
+    for key, label, score_field, related_label, related_field, unit in SCORE_COMPONENTS:
+        current_score = _number(current.get(score_field))
+        prior_score = _number(previous.get(score_field))
+        current_related = _number(current.get(related_field))
+        prior_related = _number(previous.get(related_field))
+        delta = (
+            current_score - prior_score
+            if current_score is not None and prior_score is not None else None
+        )
+        related_delta = (
+            current_related - prior_related
+            if current_related is not None and prior_related is not None else None
+        )
+        evidence = related_label + " "
+        if prior_related is not None:
+            evidence += formatting.format_value(prior_related, unit) + " → "
+        evidence += formatting.format_value(current_related, unit)
+        if key == "mask" and current.get("large_leak_minutes") is not None:
+            evidence += "；大漏气累计 " + formatting.format_value(
+                _number(current.get("large_leak_minutes")), "分钟"
+            )
+        if delta is None:
+            score_change = "变化无法计算"
+        elif delta > 0:
+            score_change = "上升 " + formatting.format_value(delta, "分")
+        elif delta < 0:
+            score_change = "下降 " + formatting.format_value(abs(delta), "分")
+        else:
+            score_change = "未变"
+        if related_delta is None:
+            related_change = ""
+        elif related_delta > 0:
+            related_change = "；同晚对应指标上升"
+        elif related_delta < 0:
+            related_change = "；同晚对应指标下降"
+        else:
+            related_change = "；同晚对应指标未变"
+        guidance = SCORE_COMPONENT_GUIDANCE[key]
+        if prior_score is not None and current_score is not None:
+            score_values = (
+                formatting.format_value(prior_score, "分") + " → "
+                + formatting.format_value(current_score, "分")
+            )
+        elif current_score is not None:
+            score_values = "上一晚未提供 → " + formatting.format_value(current_score, "分")
+        else:
+            score_values = "本晚未提供"
+        components.append({
+            "key": key,
+            "label": label,
+            "score_field": score_field,
+            "current": _round(current_score),
+            "previous": _round(prior_score),
+            "delta": _round(delta),
+            "related_label": related_label,
+            "related_field": related_field,
+            "related_current": _round(current_related),
+            "related_previous": _round(prior_related),
+            "related_delta": _round(related_delta),
+            "evidence": evidence,
+            "explanation": (
+                label + " " + score_values + "，" + score_change + "；" + evidence
+                + related_change + "。" + guidance["meaning"]
+            ),
+            "advice": guidance["advice"],
+        })
+
+        if key == "duration" and (
+                (current_related is not None and current_related < FRAGMENT_MINUTES)
+                or (delta is not None and delta < 0)):
+            suggestions.append("核对使用时长是否受分段使用或上传不完整影响，并保持完整记录")
+        elif key == "mask" and (
+                (_number(current.get("large_leak_minutes")) or 0) > 0
+                or (delta is not None and delta < 0)):
+            suggestions.append("回看面罩贴合、头带松紧和管路接口，持续漏气时联系售后")
+        elif key == "events" and (
+                (current_related is not None and current_related >= 15)
+                or (delta is not None and delta < 0)):
+            suggestions.append("结合连续多晚 AHI 和事件记录咨询专业人员，不自行调整参数")
+
+    changed = [item for item in components if item["delta"] not in (None, 0)]
+    changed.sort(key=lambda item: abs(item["delta"]), reverse=True)
+    if score is None:
+        conclusion = "本晚没有提供设备评分，无法拆解评分变化。"
+    elif previous_score is None:
+        conclusion = (
+            "本晚设备评分为 " + formatting.format_value(score, "分")
+            + "，没有上一晚同字段可供变化拆解。"
+        )
+    else:
+        delta = score - previous_score
+        direction = "上升" if delta > 0 else "下降" if delta < 0 else "持平"
+        conclusion = (
+            "本晚设备评分为 " + formatting.format_value(score, "分")
+            + "，较" + previous_label + " " + formatting.format_value(previous_score, "分")
+            + direction + " " + formatting.format_value(abs(delta), "分") + "。"
+        )
+        if changed:
+            conclusion += "记录到的评分分项变化：" + "；".join(
+                item["label"] + " "
+                + (
+                    ("+" if item["delta"] > 0 else "")
+                    + formatting.format_value(item["delta"], "分")
+                )
+                for item in changed
+            ) + "。"
+        else:
+            conclusion += "记录到的三个评分分项没有变化。"
+
+    score_summary = result["summaries"].get("treat_score", {})
+    score_period = next(
+        (item for item in result["period"].get("metrics", [])
+         if item["key"] == "treat_score"),
+        None,
+    )
+    return {
+        "current": _round(score),
+        "previous": _round(previous_score),
+        "delta": _round(score - previous_score)
+        if score is not None and previous_score is not None else None,
+        "conclusion": conclusion,
+        "components": components,
+        "top_drivers": changed[:2],
+        "window_summary": score_summary,
+        "period_comparison": score_period,
+        "suggestions": list(dict.fromkeys(suggestions)),
+    }
+
+
+def _analysis_recommendations(result: dict) -> list:
+    """把各指标的变化统一转成可执行的观察/排查建议。"""
+    recommendations = list(result.get("score", {}).get("suggestions", []))
+    period = result.get("period", {})
+    period_map = {item["key"]: item for item in period.get("metrics", [])}
+
+    duration = period_map.get("treat_time_minutes")
+    if duration and duration.get("change_percent") is not None \
+            and duration["change_percent"] <= -10:
+        recommendations.append("近期使用时长阶段均值下降，先核对记录是否完整并保持规律佩戴")
+
+    ahi = period_map.get("ahi")
+    if ahi and ahi.get("change_percent") is not None and ahi["change_percent"] >= 10:
+        recommendations.append("近期 AHI 阶段均值上升，结合连续多晚记录观察，必要时咨询专业人员")
+
+    leak = period_map.get("air_leakage_p95")
+    if leak and leak.get("change_percent") is not None \
+            and leak["change_percent"] >= 5:
+        recommendations.append("近期 P95 漏气均值上升，检查面罩贴合、头带和管路接口")
+
+    for key, label in (
+        ("tidal_volume_avg_ml", "潮气量"),
+        ("respiratory_rate_avg", "呼吸频率"),
+        ("minute_ventilation_avg_lpm", "分钟通气量"),
+    ):
+        item = period_map.get(key)
+        if item and item.get("change_percent") is not None \
+                and abs(item["change_percent"]) >= 10:
+            recommendations.append(
+                label + "阶段均值变化超过 10%，继续观察连续记录是否一致"
+            )
+
+    quality = result["quality"]
+    if quality["gap_count"]:
+        recommendations.append("确认无记录日是否由未使用或数据未上传造成，补齐后再看阶段变化")
+    if quality["fragment_count"]:
+        recommendations.append("核对碎片夜是否由分段使用或上传不完整造成")
+
+    current = result["records"][-1] if result.get("records") else {}
+    setting = current.get("pressure_setting")
+    pressure_max = _number(current.get("treat_pressure_max"))
+    if isinstance(setting, dict) and pressure_max is not None \
+            and setting.get("max") is not None \
+            and pressure_max >= float(setting["max"]):
+        recommendations.append("记录压力达到设定上限，可反馈给专业人员评估，不要自行改参数")
+
+    return list(dict.fromkeys(item for item in recommendations if item))
+
+
 def _conclusions(result: dict) -> list:
     quality = result["quality"]
     summaries = result["summaries"]
@@ -294,10 +516,17 @@ def _conclusions(result: dict) -> list:
     ]
     trend_items.sort(key=lambda item: abs(item["change_percent"]), reverse=True)
     for item in trend_items[:3]:
+        endpoint_change = item["last"] - item["first"]
+        endpoint_text = (
+            ("+" if endpoint_change > 0 else "") + str(_round(endpoint_change))
+            + item["unit"]
+        )
         conclusions.append(
-            item["label"] + " 在窗口内整体" + item["direction"] + "：首晚 "
+            item["label"] + " 首晚 "
             + str(item["first"]) + item["unit"] + "，末晚 "
-            + str(item["last"]) + item["unit"] + "，趋势折算约 "
+            + str(item["last"]) + item["unit"] + "，首末变化 "
+            + endpoint_text + "；按整段记录拟合，整体走势为" + item["direction"]
+            + "，趋势折算约 "
             + ("%+.1f" % item["change_percent"]) + "%。"
         )
     if not trend_items:
@@ -367,6 +596,8 @@ def analyze(night, window_days: int = DEFAULT_WINDOW_DAYS) -> dict:
         "period": period,
         "outliers": outliers,
     }
+    result["score"] = _score_breakdown(records, result)
+    result["recommendations"] = _analysis_recommendations(result)
     result["conclusions"] = _conclusions(result)
     return result
 

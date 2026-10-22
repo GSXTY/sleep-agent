@@ -1,6 +1,6 @@
 # Bad Case 诊断与回流操作手册
 
-适用范围：`D:\VVFLY\sleep-agent-win`
+适用范围：`<PROJECT_DIR>`
 目标：遇到"应该答到却没答到"时，先判断问题在哪一层，再把它变成可重复回归的用例。
 
 ---
@@ -25,7 +25,7 @@
 ## 二、诊断：问题在哪一层
 
 ```powershell
-cd D:\VVFLY\sleep-agent-win
+cd <PROJECT_DIR>
 python eval_retrieval.py --diagnose
 ```
 

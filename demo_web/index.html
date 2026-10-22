@@ -46,6 +46,7 @@
   .assistant .bubble {
     background: var(--card); border: 1px solid var(--border);
     border-top-left-radius: 4px;
+    max-width: 96%;
   }
   .user { justify-content: flex-end; }
   .user .bubble {
@@ -70,6 +71,61 @@
   }
   .metric .k { color: var(--muted); font-size: 12px; }
   .metric .v { font-weight: 600; font-size: 16px; }
+  .rich-text h2 {
+    font-size: 18px; line-height: 1.45; margin: 2px 0 12px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .rich-text h3 {
+    font-size: 15px; line-height: 1.5; margin: 17px 0 8px;
+    padding-left: 9px; border-left: 3px solid var(--brand);
+  }
+  .rich-text p { margin: 7px 0; }
+  .rich-text ul {
+    margin: 5px 0 9px; padding-left: 20px;
+  }
+  .rich-text li { margin: 3px 0; }
+  .rich-text .report-summary {
+    display: inline-block; margin: 2px 0 8px; padding: 4px 9px;
+    border-radius: 999px; background: #edf7ee; color: #236b39;
+    font-size: 13px; font-weight: 600;
+  }
+  .rich-text .core-summary {
+    margin: 3px 0 12px; padding: 9px 10px; border-radius: 10px;
+    background: #f5f8fc; border: 1px solid #e4eaf2;
+    color: #40516a; font-size: 13px; line-height: 1.65;
+  }
+  .rich-text .result-line {
+    display: inline-block; margin-top: 8px; padding: 3px 9px;
+    border-radius: 999px; font-size: 12px; font-weight: 600;
+  }
+  .rich-text .result-line.ok { color: #236b39; background: #edf7ee; }
+  .rich-text .result-line.warn { color: #ad4e00; background: #fff2e8; }
+  .rich-text .result-detail {
+    margin: 3px 0; padding-left: 10px; color: var(--muted);
+    font-size: 12px; line-height: 1.55;
+  }
+  .rich-text .report-hr {
+    border: 0; border-top: 1px solid var(--border); margin: 12px 0;
+  }
+  .table-wrap {
+    overflow-x: auto; -webkit-overflow-scrolling: touch;
+    margin: 8px 0 12px; border: 1px solid var(--border);
+    border-radius: 10px; background: #fff;
+  }
+  .data-table {
+    width: max-content; min-width: 100%; border-collapse: collapse;
+    font-size: 12px; line-height: 1.45;
+  }
+  .data-table th, .data-table td {
+    padding: 7px 9px; border-bottom: 1px solid #edf1f5;
+    white-space: nowrap; text-align: left;
+  }
+  .data-table th {
+    position: sticky; top: 0; background: #f3f6fa;
+    color: #40516a; font-weight: 600;
+  }
+  .data-table tr:last-child td { border-bottom: 0; }
+  .data-table tbody tr:nth-child(even) { background: #fafbfd; }
   details { margin-top: 8px; font-size: 13px; color: var(--muted); }
   details summary { cursor: pointer; }
   .feedback { display: flex; gap: 10px; margin-top: 8px; font-size: 16px; }
@@ -101,6 +157,41 @@
     border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s;
   }
   .toast.show { opacity: 1; }
+  @media (max-width: 520px) {
+    #chat { padding-left: 10px; padding-right: 10px; }
+    .assistant .bubble { width: 100%; max-width: 100%; padding: 11px 12px; }
+    .rich-text h2 { font-size: 17px; }
+    .rich-text h3 { font-size: 14px; margin-top: 15px; }
+    .rich-text .core-summary { font-size: 12.5px; }
+
+    /* 手机上把宽表拆成逐行指标卡，避免横向拖动和列挤压。 */
+    .table-wrap {
+      overflow: visible; border: 0; background: transparent;
+      margin: 8px 0 13px;
+    }
+    .data-table {
+      display: block; width: 100%; min-width: 0;
+      border-collapse: separate; font-size: 13px;
+    }
+    .data-table thead { display: none; }
+    .data-table tbody { display: block; }
+    .data-table tbody tr {
+      display: block; margin: 0 0 8px; padding: 5px 11px;
+      background: #fff !important; border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .data-table tbody td {
+      display: grid; grid-template-columns: minmax(86px, 40%) minmax(0, 1fr);
+      gap: 12px; width: 100%; padding: 6px 0;
+      border: 0; border-bottom: 1px dashed #edf1f5;
+      white-space: normal; overflow-wrap: anywhere;
+    }
+    .data-table tbody td::before {
+      content: attr(data-label);
+      color: var(--muted); font-size: 12px; font-weight: 600;
+    }
+    .data-table tbody td:last-child { border-bottom: 0; }
+  }
 </style>
 </head>
 <body>
@@ -115,10 +206,10 @@
     <div class="bubble">
       你好，我是睡眠呼吸产品助手。可以问我产品使用方法、指标含义，也可以查看治疗数据。
       <div class="suggest">
-        <button data-q="我昨晚的 AHI 是多少">我昨晚的 AHI 是多少</button>
-        <button data-q="什么是 AHI">什么是 AHI</button>
-        <button data-q="面罩怎么清洁">面罩怎么清洁</button>
-        <button data-q="生成昨晚的报告">生成昨晚的报告</button>
+        <button data-q="YA70工作原理是什么？">YA70工作原理是什么？</button>
+        <button data-q="有什么工作模式？">有什么工作模式？</button>
+        <button data-q="帮我生成一份报告">帮我生成一份报告</button>
+        <button data-q="帮我分析一下这一周的数据">帮我分析一下这一周的数据</button>
       </div>
     </div>
   </div>
@@ -149,10 +240,196 @@ function escapeHtml(text) {
   }[ch]));
 }
 
-function formatText(text) {
-  let html = escapeHtml(text || '');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  return html.replace(/\n/g, '<br>');
+function formatInline(text) {
+  return escapeHtml(text || '').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+}
+
+function formatPlain(text) {
+  return formatInline(text).replace(/\n/g, '<br>');
+}
+
+function polishReportText(text) {
+  const units = '(分钟|次\\/小时|次\\/分钟|L\\/min|hPa|mL|分)';
+  return String(text || '')
+    .replace(new RegExp('([+-]?\\d+)\\.0(?=\\s*' + units + ')', 'g'), '$1')
+    .replace(new RegExp('([+-]?\\d+(?:\\.\\d+)?)(' + units + ')', 'g'), '$1 $2');
+}
+
+function stripInternalValidation(text) {
+  return String(text || '').split('\n').filter(line => {
+    const value = line.trim();
+    return !/^验收结果：/.test(value)
+      && !/^·\s*(pressure|respiratory-events|breathing-overview|leakage)：/.test(value)
+      && !/^(模型调用失败|模型输出未通过校验|未启用大模型)/.test(value);
+  }).join('\n').trim();
+}
+
+function stripInlineSources(text) {
+  return String(text || '')
+    .replace(/根据《[^》]+》[^，。；\n]*[，；]\s*/g, '')
+    .replace(/出处为《[^》]+》[^；。\n]*[；。]?/g, '')
+    .replace(/（[^（）]*(?:出处|来源)[^（）]*）/g, '')
+    .replace(/\([^()]*(?:出处|来源)[^()]*\)/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function publicDetail(detail) {
+  const value = String(detail || '').trim();
+  return /模型调用失败|模型输出未通过校验|未启用大模型|验收(通过|未通过)/.test(value)
+    ? ''
+    : value;
+}
+
+function splitTableRow(line) {
+  return line.trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map(cell => cell.trim());
+}
+
+function isTableSeparator(line) {
+  if (!line.includes('|')) return false;
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+}
+
+function renderMarkdown(text) {
+  const lines = polishReportText(text).replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let listTag = '';
+  let i = 0;
+
+  function closeList() {
+    if (listTag) {
+      out.push(`</${listTag}>`);
+      listTag = '';
+    }
+  }
+
+  function openList(tag) {
+    if (listTag !== tag) {
+      closeList();
+      listTag = tag;
+      out.push(`<${tag}>`);
+    }
+  }
+
+  while (i < lines.length) {
+    const raw = lines[i];
+    const line = raw.trim();
+    if (!line) {
+      closeList();
+      i += 1;
+      continue;
+    }
+
+    if (line.includes('|') && i + 1 < lines.length
+        && isTableSeparator(lines[i + 1])) {
+      closeList();
+      const headers = splitTableRow(line);
+      const rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) {
+        rows.push(splitTableRow(lines[i]));
+        i += 1;
+      }
+      const head = headers.map(cell => `<th>${formatInline(cell)}</th>`).join('');
+      const body = rows.map(row =>
+        '<tr>' + headers.map((_, index) =>
+          `<td data-label="${escapeHtml(headers[index] || '')}">${
+            formatInline(row[index] || '')}</td>`).join('') + '</tr>'
+      ).join('');
+      out.push(
+        `<div class="table-wrap"><table class="data-table">`
+        + `<thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
+      );
+      continue;
+    }
+
+    if (/^[一二三四五六七八九十]+、/.test(line)
+        || line === '数据范围与边界') {
+      closeList();
+      out.push(`<h3>${formatInline(line)}</h3>`);
+      i += 1;
+      continue;
+    }
+
+    if (/^【.+】$/.test(line)) {
+      closeList();
+      out.push(`<h3>${formatInline(line.slice(1, -1))}</h3>`);
+      i += 1;
+      continue;
+    }
+
+    if (/(报告|数据分析|评分分析|报告解读)[（(]/.test(line)) {
+      closeList();
+      out.push(`<h2>${formatInline(line)}</h2>`);
+      i += 1;
+      continue;
+    }
+
+    if (/^总体评级：/.test(line)) {
+      closeList();
+      out.push(`<div class="report-summary">${formatInline(line)}</div>`);
+      i += 1;
+      continue;
+    }
+
+    if (/^核心指标：/.test(line)) {
+      closeList();
+      out.push(`<div class="core-summary">${formatInline(line)}</div>`);
+      i += 1;
+      continue;
+    }
+
+    if (/^验收结果：/.test(line)) {
+      closeList();
+      const passed = line.includes('通过') && !line.includes('未通过');
+      out.push(
+        `<div class="result-line ${passed ? 'ok' : 'warn'}">${formatInline(line)}</div>`
+      );
+      i += 1;
+      continue;
+    }
+
+    if (/^={3,}$/.test(line) || /^-{8,}$/.test(line)) {
+      closeList();
+      out.push('<hr class="report-hr">');
+      i += 1;
+      continue;
+    }
+
+    const bullet = line.match(/^-\s+(.*)$/);
+    if (bullet) {
+      openList('ul');
+      out.push(`<li>${formatInline(bullet[1])}</li>`);
+      i += 1;
+      continue;
+    }
+
+    const numbered = line.match(/^\d+\.\s+(.*)$/);
+    if (numbered) {
+      openList('ol');
+      out.push(`<li>${formatInline(numbered[1])}</li>`);
+      i += 1;
+      continue;
+    }
+
+    if (/^·\s+/.test(line)) {
+      closeList();
+      out.push(`<p class="result-detail">${formatInline(line)}</p>`);
+      i += 1;
+      continue;
+    }
+
+    closeList();
+    out.push(`<p>${formatInline(line)}</p>`);
+    i += 1;
+  }
+  closeList();
+  return `<div class="rich-text">${out.join('')}</div>`;
 }
 
 function toast(message) {
@@ -161,7 +438,24 @@ function toast(message) {
   setTimeout(() => toastEl.classList.remove('show'), 1600);
 }
 
-function addMessage(role, html) {
+function isNearBottomElement(element, threshold = 80) {
+  return element.scrollHeight - element.scrollTop - element.clientHeight < threshold;
+}
+
+function isNearBottom() {
+  return isNearBottomElement(chatEl);
+}
+
+function scrollMessageToStart(wrap) {
+  requestAnimationFrame(() => {
+    const containerTop = chatEl.getBoundingClientRect().top;
+    const messageTop = wrap.getBoundingClientRect().top;
+    const target = chatEl.scrollTop + messageTop - containerTop - 8;
+    chatEl.scrollTop = Math.max(0, target);
+  });
+}
+
+function addMessage(role, html, scrollMode = 'none') {
   const wrap = document.createElement('div');
   wrap.className = 'msg ' + role;
   const bubble = document.createElement('div');
@@ -169,7 +463,11 @@ function addMessage(role, html) {
   bubble.innerHTML = html;
   wrap.appendChild(bubble);
   chatEl.appendChild(wrap);
-  chatEl.scrollTop = chatEl.scrollHeight;
+  if (scrollMode === 'bottom') {
+    chatEl.scrollTop = chatEl.scrollHeight;
+  } else if (scrollMode === 'start') {
+    scrollMessageToStart(wrap);
+  }
   return bubble;
 }
 
@@ -184,14 +482,15 @@ function renderMetrics(structured) {
   return `<div class="cards">${items}</div>`;
 }
 
-function renderResponse(data, question) {
-  let html = '<div>' + formatText(data.text) + '</div>';
+function renderResponse(data, question, scrollMode = 'start') {
+  let html = renderMarkdown(stripInlineSources(stripInternalValidation(data.text)));
   if (data.structured) html = renderMetrics(data.structured) + html;
 
   if (data.sources && data.sources.length) {
     html += `<details><summary>查看来源</summary>${escapeHtml(data.sources.join('、'))}</details>`;
   }
-  html += `<div class="meta">${escapeHtml(data.mode || '')}${data.detail ? ' · ' + escapeHtml(data.detail) : ''}</div>`;
+  const detail = publicDetail(data.detail);
+  html += `<div class="meta">${escapeHtml(data.mode || '')}${detail ? ' · ' + escapeHtml(detail) : ''}</div>`;
 
   if (data.candidates && data.candidates.length) {
     html += '<div class="chips">' + data.candidates.map((item, index) =>
@@ -207,7 +506,7 @@ function renderResponse(data, question) {
     <span data-rating="down" title="没帮助">👎</span>
   </div>`;
 
-  const bubble = addMessage('assistant', html);
+  const bubble = addMessage('assistant', html, scrollMode);
   bindInteractive(bubble);
 }
 
@@ -240,11 +539,13 @@ document.querySelectorAll('.suggest button').forEach(button => {
 async function send(message) {
   message = (message || '').trim();
   if (!message || sendEl.disabled) return;
-  addMessage('user', formatText(message));
+  addMessage('user', formatPlain(message), 'bottom');
   inputEl.value = '';
   inputEl.blur();          // 发送后收起键盘，用户点输入框时才重新弹出
   sendEl.disabled = true;
-  const typing = addMessage('assistant', '<span class="typing">思考中…</span>');
+  const typing = addMessage(
+    'assistant', '<span class="typing">思考中…</span>', 'bottom'
+  );
 
   try {
     const response = await fetch('/api/chat', {
@@ -253,15 +554,25 @@ async function send(message) {
       body: JSON.stringify({message, session_id: sessionId})
     });
     const payload = await response.json();
+    // 回答可能很长：用户仍在底部时，定位到回答开头；
+    // 用户等待期间已经上滑阅读时，保持当前位置不动。
+    const anchorResponse = isNearBottom();
     typing.closest('.msg').remove();
     if (!payload || payload.code !== 0) {
-      addMessage('assistant', formatText('服务暂时不可用，请稍后再试。'));
+      addMessage(
+        'assistant', formatPlain('服务暂时不可用，请稍后再试。'),
+        anchorResponse ? 'start' : 'none'
+      );
     } else {
-      renderResponse(payload.data, message);
+      renderResponse(payload.data, message, anchorResponse ? 'start' : 'none');
     }
   } catch (error) {
+    const anchorResponse = isNearBottom();
     typing.closest('.msg').remove();
-    addMessage('assistant', formatText('网络异常，请检查连接后重试。'));
+    addMessage(
+      'assistant', formatPlain('网络异常，请检查连接后重试。'),
+      anchorResponse ? 'start' : 'none'
+    );
   } finally {
     sendEl.disabled = false;
   }

@@ -25,23 +25,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from sleepagent import nightdata, pipeline
+from sleepagent import data_source, nightdata, pipeline
 from sleepagent.logging_config import configure_logging
 
-_nights = {}
 _datasets = {}
+DATA_SOURCE = ""
+USER_ID = nightdata.DEFAULT_USER_ID
 
 
 def _current_night(user_id: str = nightdata.DEFAULT_USER_ID):
-    """按用户按需加载；当前数据源仍是单用户，接口已预留隔离边界。"""
-    if user_id not in _nights:
-        _nights[user_id] = nightdata.load_night(user_id)
-    return _nights[user_id]
+    return _dataset(user_id)[-1]
 
 
 def _dataset(user_id: str = nightdata.DEFAULT_USER_ID):
     if user_id not in _datasets:
-        _datasets[user_id] = nightdata.load_dataset(user_id)
+        _datasets[user_id] = data_source.load_nights(
+            user_id=user_id, source=DATA_SOURCE or None
+        )
     return _datasets[user_id]
 
 
@@ -62,7 +62,10 @@ def make_handler():
 
         def do_GET(self):
             if self.path == "/health":
-                self._send(200, {"status": "ok"})
+                self._send(200, {
+                    "status": "ok",
+                    "data_source": DATA_SOURCE or "configured",
+                })
                 return
             self._send(404, {"code": 404, "message": "not found", "data": None})
 
@@ -82,7 +85,7 @@ def make_handler():
                 self._send(400, {"code": 400, "message": "缺少 question 字段", "data": None})
                 return
             use_llm = bool(body.get("use_llm", False))
-            user_id = str(body.get("user_id") or "DEMO-USER")
+            user_id = str(body.get("user_id") or USER_ID)
             try:
                 nights = _dataset(user_id)
                 night = _current_night(user_id)
@@ -97,7 +100,7 @@ def make_handler():
                     ),
                     night,
                 )
-                if result.mode.startswith(("设备数据", "报告生成")):
+                if result.mode.startswith(("设备数据", "报告生成", "App报告解读")):
                     result.detail = result.detail + " · " + selection.note
             except Exception as exc:  # 探针阶段：把异常转成结构化响应，便于定位
                 self._send(500, {"code": 500, "message": str(exc), "data": None})
@@ -112,15 +115,31 @@ def make_server(host: str = "127.0.0.1", port: int = 8099) -> ThreadingHTTPServe
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
     parser = argparse.ArgumentParser(description="pipeline HTTP 探针")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8099)
     parser.add_argument("--verbose", action="store_true", help="在终端显示 INFO 请求日志")
+    parser.add_argument("--data-source", choices=("sample", "backend"), default="")
+    parser.add_argument("--user-id", default="")
     args = parser.parse_args()
 
+    global DATA_SOURCE, USER_ID
+    source_settings = data_source.settings(
+        source=args.data_source or None,
+        user_id=args.user_id or None,
+    )
+    DATA_SOURCE = source_settings["source"]
+    USER_ID = source_settings["user_id"]
     configure_logging(verbose=args.verbose)
     server = make_server(args.host, args.port)
     print("探针已启动: http://" + args.host + ":" + str(args.port))
+    print(data_source.describe(user_id=USER_ID, source=DATA_SOURCE))
     print("健康检查: GET /health    提问: POST /ask")
     print("按 Ctrl+C 停止")
     try:

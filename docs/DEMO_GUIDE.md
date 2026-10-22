@@ -21,7 +21,7 @@ demo_server.py
 pipeline（路由 / RAG / 安全边界 / 校验）
 ```
 
-Demo 使用样板数据 `DEMO-USER`，不连接真实用户数据。
+Demo 默认使用样板数据；双击 `demo_backend.cmd` 时使用真实 YA70 后台和测试用户。
 
 ---
 
@@ -32,10 +32,18 @@ Demo 使用样板数据 `DEMO-USER`，不连接真实用户数据。
 
 换端口：`demo.cmd 8101`。
 
+真实后台模式：
+
+```text
+demo_backend.cmd
+```
+
+当前该脚本使用 `10001` 和 `.local/ya70_api.json` 中的后台配置。
+
 命令行方式：
 
 ```powershell
-cd D:\VVFLY\sleep-agent-win
+cd <PROJECT_DIR>
 python demo_server.py
 ```
 
@@ -64,7 +72,7 @@ Windows 防火墙需要放行 8100 端口。
 val webView = findViewById<WebView>(R.id.webView)
 webView.settings.javaScriptEnabled = true
 webView.settings.domStorageEnabled = true
-webView.loadUrl("http://192.168.1.20:8100/")
+webView.loadUrl("http://demo.local:8100/")
 ```
 
 ### iOS（Swift / WKWebView）
@@ -72,7 +80,7 @@ webView.loadUrl("http://192.168.1.20:8100/")
 ```swift
 let webView = WKWebView(frame: view.bounds)
 view.addSubview(webView)
-webView.load(URLRequest(url: URL(string: "http://192.168.1.20:8100/")!))
+webView.load(URLRequest(url: URL(string: "http://demo.local:8100/")!))
 ```
 
 ### Flutter
@@ -80,7 +88,7 @@ webView.load(URLRequest(url: URL(string: "http://192.168.1.20:8100/")!))
 ```dart
 final controller = WebViewController()
   ..setJavaScriptMode(JavaScriptMode.unrestricted)
-  ..loadRequest(Uri.parse('http://192.168.1.20:8100/'));
+  ..loadRequest(Uri.parse('http://demo.local:8100/'));
 
 WebViewWidget(controller: controller)
 ```
@@ -99,6 +107,15 @@ WebViewWidget(controller: controller)
 | 多轮确认 | 先问“我昨晚的 AHI 是多少”，再回“是的” |
 | 安全边界 | 帮我把压力调高一点、我有气胸可以使用吗 |
 | 报告 | 生成昨晚的报告 |
+
+首屏快捷问题默认展示：YA70 工作原理、工作模式、报告范围确认和近 7 天数据分析。
+
+报告会渲染标题、评级、核心指标、章节和列表；Markdown 表格在桌面上保持表格，
+在手机上自动拆成逐行指标卡，不再直接显示 `| 指标 |`，也不需要横向拖动查看。
+报告验收结果属于内部质量信息，只写入结构化接口和日志，不显示在用户报告正文中。
+模型连接失败和输出校验失败同样只写入日志；指标定义优先使用本地知识库直接回答。
+发送问题时页面会滚动到底部；长回答完成后定位到回答开头，用户等待期间主动上滑时不会被强制拉回底部。
+来源不写入回答正文，只放在回答底部可折叠的“查看来源”中。
 
 ---
 
@@ -138,7 +155,7 @@ Get-Content .local\demo_feedback.jsonl |
 
 ## 六、Demo 的已知限制
 
-1. 只有样板数据 `DEMO-USER`，不是真实用户；
+1. `demo.cmd` 使用样板数据，`demo_backend.cmd` 使用本地真实后台；
 2. 会话存在内存里，重启服务即清空；
 3. 没有鉴权、限流，只能内网演示；
 4. 报告图表还没有接，当前是文字 + 指标卡；

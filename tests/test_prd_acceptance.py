@@ -91,7 +91,7 @@ class TestPRDAcceptance(unittest.TestCase):
 
 
 class TestAcceptanceIsNonBlocking(unittest.TestCase):
-    """验收未通过时不阻断报告，但必须列出问题清单。"""
+    """验收未通过时不阻断报告，内部问题清单不进入用户正文。"""
 
     def _night_missing_leak(self):
         night = nightdata.load_night()
@@ -108,16 +108,16 @@ class TestAcceptanceIsNonBlocking(unittest.TestCase):
         self.assertFalse(payload["acceptance"]["passed"])
         self.assertGreater(len(payload["text"]), 300, "验收未通过时报告仍应生成")
 
-    def test_acceptance_failures_are_listed(self):
+    def test_acceptance_failures_stay_internal(self):
         text = report.render(self._night_missing_leak())["text"]
-        self.assertIn("验收结果：未通过", text)
-        self.assertIn("  · ", text, "未通过时必须逐条列出问题")
+        self.assertNotIn("验收结果：", text)
+        self.assertNotIn("  · ", text)
+        self.assertNotIn("未覆盖必讲主题", text)
 
-    def test_acceptance_listing_is_capped(self):
-        # 单模块缺数据会连报多项，输出要折叠，避免刷屏
-        text = report.render(self._night_missing_leak())["text"]
-        listing = [line for line in text.split("\n") if line.startswith("  · ")]
-        self.assertLessEqual(len(listing), 8, str(listing))
+    def test_acceptance_diagnostics_remain_in_structured_data(self):
+        payload = report.render(self._night_missing_leak())
+        self.assertFalse(payload["acceptance"]["passed"])
+        self.assertTrue(payload["acceptance"]["results"])
 
 
 if __name__ == "__main__":

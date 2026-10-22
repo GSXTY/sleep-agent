@@ -51,7 +51,7 @@ class TestDefinitionAnswer(unittest.TestCase):
         )
         self.assertTrue(result.mode.startswith("产品文档"), result.mode)
         self.assertIn("28dB", result.text)
-        self.assertIn("05_技术参数.md", result.text)
+        self.assertNotIn("05_技术参数.md", result.text)
 
     def test_negated_pressure_advice_is_safe(self):
         result = validation.check_output(
@@ -74,6 +74,9 @@ class TestDefinitionAnswer(unittest.TestCase):
         }])
         self.assertLess(len(text), 900)
         self.assertIn("后续内容已省略", text)
+        self.assertNotIn("说明.docx", text)
+        self.assertIn("【系统设置】", text)
+        self.assertNotIn("我在产品资料里查到", text)
 
 
 if __name__ == "__main__":

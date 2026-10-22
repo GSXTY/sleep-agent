@@ -36,7 +36,7 @@
 | `tier` | string | `blocked` / `strong` / `medium` / `weak` / `none` |
 | `validation` | object | `{ok: boolean|null, problems: string[]}` |
 | `risk_flags` | string[] | 风险标记，如 `pressure`、`model_typo`、`validation_failed` |
-| `structured` | object|null | 报告结构化数据；其他模式通常为 `null` |
+| `structured` | object|null | 报告、分析或 App 报告解读的结构化数据 |
 
 `AgentResponse` 支持 `to_dict()`，HTTP 层应发送 `to_dict()`，不要把对象直接 JSON 序列化。
 
@@ -111,6 +111,10 @@ Content-Type: application/json
 指标卡字段：`key`、`source_field`、`label`、`value`、`unit`、`display`、`provided`。
 缺失指标使用 `value=null`、`provided=false`、`display="未提供"`。
 
+设备分析、趋势分析和 App 报告解读会返回
+`report_type="app_report_insight"` 的结构，板块、字段和等级约定见
+[App 报告解读接入说明](APP_REPORT_INSIGHTS.md)。
+
 ### `candidates` 选项契约
 
 三种场景共用同一结构，前端可以直接渲染成按钮或气泡，点击后把 `value`
@@ -118,7 +122,7 @@ Content-Type: application/json
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `type` | string | `date`（可选治疗夜）/ `intent`（方向）/ `topic`（资料章节） |
+| `type` | string | `date`（可选治疗夜）/ `scope`（单晚/7天/30天）/ `followup`（继续比较或看趋势）/ `intent`（方向）/ `topic`（资料章节） |
 | `title` | string | 展示文案，保持简短 |
 | `value` | string | 回传内容，点击后作为下一轮问题 |
 | `source` | string | 资料出处；`date`、`intent` 为空串 |

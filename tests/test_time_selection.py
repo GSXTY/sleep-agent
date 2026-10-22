@@ -103,8 +103,9 @@ class TestTimeClarification(unittest.TestCase):
         result = self._ask("2025-01-01 的报告")
         self.assertEqual(result.mode, "时间确认")
         self.assertIn("没有 2025-01-01", result.text)
-        self.assertIn("2026-10-09", result.text)
+        self.assertIn("最近一次使用（2026-10-15）", result.text)
         self.assertNotIn("平均治疗压力", result.text)
+        self.assertEqual(result.candidates[0]["title"], "上一次使用（2026-10-15）")
 
     def test_vague_period_without_report_word(self):
         result = self._ask("上周用了多久")
@@ -118,6 +119,12 @@ class TestTimeClarification(unittest.TestCase):
         self.assertIn("最近一次使用是 2026-10-15", result.text)
         self.assertEqual(result.candidates[0]["title"], "上一次使用（2026-10-15）")
         self.assertEqual(result.candidates[0]["value"], "2026-10-15的使用情况")
+
+    def test_today_without_record_asks_about_last_use(self):
+        result = self._ask("今天的使用情况")
+        self.assertEqual(result.mode, "时间确认")
+        self.assertIn("数据里没有今天（2026-10-20）", result.text)
+        self.assertIn("最近一次使用（2026-10-15）", result.text)
 
     def test_last_use_candidate_resolves_to_that_night(self):
         selection = nightdata.resolve_night(

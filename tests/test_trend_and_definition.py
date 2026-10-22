@@ -4,6 +4,7 @@ import os
 os.environ.setdefault("SLEEPAGENT_DISABLE_VECTORS", "1")
 
 import unittest
+from unittest import mock
 
 from sleepagent import nightdata, pipeline
 
@@ -42,9 +43,21 @@ class TrendAndDefinitionTest(unittest.TestCase):
 
     def test_ahi_definition_is_not_hijacked_by_docs(self):
         result = self.ask("AHI 是什么意思")
-        self.assertIn(result.mode.split("（")[0], ("产品文档", "指标解释"))
+        self.assertEqual(result.mode, "指标解释（规则版）")
+        self.assertIn("呼吸暂停低通气指数", result.text)
         # 定义问题不应附带当晚数值
         self.assertNotIn("5.7", result.text)
+
+    def test_ahi_definition_does_not_depend_on_llm(self):
+        with mock.patch.object(pipeline.llm, "chat") as chat:
+            result = pipeline.answer(
+                pipeline.UserQuery("什么是ahi", use_llm=True),
+                self.night,
+            )
+        chat.assert_not_called()
+        self.assertEqual(result.mode, "指标解释（规则版）")
+        self.assertIn("平均每小时", result.text)
+        self.assertNotIn("模型调用失败", result.detail)
 
 
 if __name__ == "__main__":

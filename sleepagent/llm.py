@@ -110,7 +110,7 @@ def available() -> bool:
 def _probe(url: str, headers=None) -> dict:
     try:
         request = urllib.request.Request(url, headers=headers or {}, method="GET")
-        with urllib.request.urlopen(request, timeout=5) as response:
+        with _open_request(request, timeout=5) as response:
             return {"ok": 200 <= response.status < 300, "detail": "HTTP " + str(response.status)}
     except urllib.error.HTTPError as exc:
         return {"ok": False, "detail": "HTTP " + str(exc.code)}
@@ -139,7 +139,7 @@ def _post(url: str, payload: dict, headers: dict, timeout: float):
         headers={"Content-Type": "application/json", **headers}, method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _open_request(request, timeout=timeout) as response:
             return {"ok": True, "body": json.loads(response.read().decode("utf-8")), "detail": ""}
     except urllib.error.HTTPError as exc:
         detail = ""
@@ -156,6 +156,35 @@ def _post(url: str, payload: dict, headers: dict, timeout: float):
         return {"ok": False, "body": None, "detail": "无法连接：" + str(exc.reason)}
     except Exception as exc:
         return {"ok": False, "body": None, "detail": str(exc)}
+
+
+def _usage(body: dict, provider: str) -> dict:
+    raw = body.get("usage") or {}
+    if provider == "openai":
+        input_tokens = raw.get("prompt_tokens", 0) or 0
+        output_tokens = raw.get("completion_tokens", 0) or 0
+        total_tokens = raw.get("total_tokens", input_tokens + output_tokens) or 0
+    else:
+        input_tokens = body.get("prompt_eval_count", 0) or 0
+        output_tokens = body.get("eval_count", 0) or 0
+        total_tokens = input_tokens + output_tokens
+    return {
+        "input_tokens": int(input_tokens),
+        "output_tokens": int(output_tokens),
+        "total_tokens": int(total_tokens),
+    }
+
+
+def _open_request(request, timeout: float):
+    """发送请求；失效代理导致连接被拒时，自动绕过代理再试一次。"""
+    try:
+        return urllib.request.urlopen(request, timeout=timeout)
+    except urllib.error.URLError as exc:
+        reason = str(getattr(exc, "reason", exc)).lower()
+        if not any(marker in reason for marker in ("refused", "10061")):
+            raise
+        direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        return direct.open(request, timeout=timeout)
 
 
 def chat(messages: list, *, temperature: float = 0.2, max_tokens: int = 400) -> dict:
@@ -177,6 +206,7 @@ def chat(messages: list, *, temperature: float = 0.2, max_tokens: int = 400) -> 
                     "provider": "openai", "detail": result["detail"]}
         choices = result["body"].get("choices") or []
         content = (choices[0].get("message", {}).get("content") if choices else "") or ""
+        usage = _usage(result["body"], "openai")
     else:
         result = _post(
             cfg["base_url"] + "/api/chat",
@@ -188,9 +218,11 @@ def chat(messages: list, *, temperature: float = 0.2, max_tokens: int = 400) -> 
             return {"status": "error", "content": "", "model": cfg["model"],
                     "provider": "ollama", "detail": result["detail"]}
         content = (result["body"].get("message") or {}).get("content", "") or ""
+        usage = _usage(result["body"], "ollama")
 
     if not content.strip():
         return {"status": "empty", "content": "", "model": cfg["model"],
-                "provider": cfg["provider"], "detail": "模型返回空内容"}
+                "provider": cfg["provider"], "detail": "模型返回空内容",
+                "usage": usage}
     return {"status": "success", "content": content.strip(), "model": cfg["model"],
-            "provider": cfg["provider"], "detail": ""}
+            "provider": cfg["provider"], "detail": "", "usage": usage}

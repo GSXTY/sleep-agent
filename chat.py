@@ -17,6 +17,8 @@
   python chat.py "滤芯多久换一次"   单次提问
   python chat.py --report        打印单晚报告
   python chat.py --no-llm "..."  强制使用规则版
+  python chat.py --data-source backend --user-id <TEST_USER_ID>
+                                  使用 YA70 后台数据
 """
 from __future__ import annotations
 
@@ -26,6 +28,7 @@ from pathlib import Path
 
 from sleepagent.logging_config import configure_logging
 from sleepagent import (
+    data_source,
     embeddings,
     knowledge,
     llm,
@@ -62,7 +65,7 @@ BANNER = """睡眠呼吸产品助手（命令行版）
 
 命令：
   /docs       列出已加载的产品资料
-  /report     生成单晚治疗报告（样板数据）
+  /report     生成当前数据源的单晚治疗报告
   /facts      查看本晚确定性事实
   /knowledge  列出指标解释条目
   /safety X   只做安全判定
@@ -72,6 +75,20 @@ BANNER = """睡眠呼吸产品助手（命令行版）
   /help       显示本帮助
   /quit       退出
 """
+
+
+def _pop_option(args: list, name: str):
+    """从简单命令行参数中取出 --name value 或 --name=value。"""
+    for index, item in enumerate(list(args)):
+        if item == name and index + 1 < len(args):
+            value = args[index + 1]
+            del args[index:index + 2]
+            return value
+        if item.startswith(name + "="):
+            value = item.split("=", 1)[1]
+            del args[index]
+            return value
+    return ""
 
 
 def history_messages(question: str, result, night=None) -> list:
@@ -84,7 +101,14 @@ def history_messages(question: str, result, night=None) -> list:
     """
     structured = getattr(result, "structured", None)
     mode = str(getattr(result, "mode", ""))
-    if structured or mode.startswith("报告生成"):
+    is_single_night_report = (
+        mode.startswith("报告生成")
+        or (
+            isinstance(structured, dict)
+            and structured.get("report_type") == "single_night"
+        )
+    )
+    if is_single_night_report:
         date = ""
         if isinstance(structured, dict):
             date = str(structured.get("record_date") or "")
@@ -105,7 +129,8 @@ def history_messages(question: str, result, night=None) -> list:
 def option_hint(result) -> str:
     """命令行里把可选项列出来，用户可以直接照着输入。"""
     picks = [item.get("title", "") for item in (result.candidates or [])
-             if item.get("type") in ("date", "topic") and item.get("title")]
+             if item.get("type") in ("date", "topic", "scope", "followup")
+             and item.get("title")]
     return "  [可选] " + " / ".join(picks) if picks else ""
 
 
@@ -167,8 +192,20 @@ def main(argv: list) -> int:
     if verbose:
         args.remove("--verbose")
     configure_logging(verbose=verbose)
-    user_id = nightdata.DEFAULT_USER_ID
-    nights = nightdata.load_dataset(user_id)
+    selected_source = _pop_option(args, "--data-source")
+    requested_user_id = _pop_option(args, "--user-id")
+    try:
+        source_settings = data_source.settings(
+            source=selected_source or None,
+            user_id=requested_user_id or None,
+        )
+        user_id = source_settings["user_id"]
+        nights = data_source.load_nights(
+            user_id=user_id, source=source_settings["source"]
+        )
+    except Exception as exc:
+        print("[数据源错误] " + str(exc))
+        return 2
     night = nights[-1]
     use_llm = True
     if "--no-llm" in args:
@@ -190,7 +227,7 @@ def main(argv: list) -> int:
                       available_dates=nightdata.dataset_dates(nights)),
             night,
         )
-        if result.mode.startswith(("设备数据", "报告生成")):
+        if result.mode.startswith(("设备数据", "报告生成", "App报告解读")):
             result.detail = result.detail + " · " + selection.note
         print(result.text)
         print("")
@@ -236,6 +273,9 @@ def main(argv: list) -> int:
             continue
         if question == "/status":
             print(build_status(use_llm))
+            print("  " + data_source.describe(
+                user_id=user_id, source=source_settings["source"]
+            ))
             print("")
             continue
         if question == "/docs":
@@ -302,7 +342,7 @@ def main(argv: list) -> int:
                                   time_status=selection.status,
                                   time_note=selection.note,
                                   available_dates=nightdata.dataset_dates(nights)), night)
-        if result.mode.startswith(("设备数据", "报告生成")):
+        if result.mode.startswith(("设备数据", "报告生成", "App报告解读")):
             detail_note = pending_note or selection.note
             result.detail = result.detail + " · " + detail_note
         print("")

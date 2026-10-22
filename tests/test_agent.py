@@ -19,7 +19,7 @@ from sleepagent import (acceptance, bm25, embeddings, knowledge, llm, nightdata,
 
 class TestKnowledge(unittest.TestCase):
     def test_loads(self):
-        self.assertEqual(len(knowledge.load_knowledge_base()), 10)
+        self.assertEqual(len(knowledge.load_knowledge_base()), 14)
 
     def test_retrieves_ahi(self):
         hits = knowledge.retrieve("AHI 是什么意思")
@@ -66,7 +66,7 @@ class TestSocial(unittest.TestCase):
 
     def test_capability_examples_use_common_entrypoints(self):
         text = social.CAPABILITY_TEXT
-        self.assertIn("帮我生成报告", text)
+        self.assertIn("生成最近7天的报告", text)
         self.assertIn("什么是 AHI", text)
 
     def test_report_trigger(self):
@@ -336,12 +336,15 @@ class TestDeviceDataQuestions(unittest.TestCase):
 
     def test_other_data_questions(self):
         for question, token in (("我昨晚用了多久", "402"),
-                                ("我的漏气量怎么样", "12.4"),
                                 ("压力正常吗", "4.35"),
                                 ("我的呼吸频率是多少", "15.2")):
             result = self.chat.answer(question, self.night, [], use_llm=False)
             self.assertIn("设备数据", result["mode"], question)
             self.assertIn(token, result["text"], question)
+
+    def test_specific_metric_situation_asks_scope(self):
+        result = self.chat.answer("我的漏气量怎么样", self.night, [], use_llm=False)
+        self.assertEqual(result["mode"], "范围确认")
 
     def test_product_doc_question_still_routes_to_docs(self):
         result = self.chat.answer("滤芯多久换一次", self.night, [], use_llm=False)
@@ -588,7 +591,7 @@ class TestSelectionRouting(unittest.TestCase):
         self.assertIn("产品文档", self._mode("滤芯多久换一次")["mode"])
 
     def test_usage_wording_is_recognized(self):
-        self.assertIn("设备数据", self._mode("最近使用情况")["mode"])
+        self.assertEqual(self._mode("最近使用情况")["mode"], "范围确认")
 
 
 class TestHeadingDetection(unittest.TestCase):

@@ -10,6 +10,7 @@ import unittest
 import urllib.request
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import demo_server
@@ -30,6 +31,7 @@ class DemoServerTest(unittest.TestCase):
 
     def setUp(self):
         demo_server._sessions.clear()
+        demo_server._session_nights.clear()
 
     def _url(self, path):
         return "http://127.0.0.1:" + str(self.port) + path
@@ -52,11 +54,33 @@ class DemoServerTest(unittest.TestCase):
         status, body = self._get("/")
         self.assertEqual(status, 200)
         self.assertIn("睡眠呼吸助手", body)
+        self.assertIn("renderMarkdown", body)
+        self.assertIn("polishReportText", body)
+        self.assertIn("stripInternalValidation", body)
+        self.assertIn("stripInlineSources", body)
+        self.assertIn("isNearBottomElement", body)
+        self.assertIn("scrollMessageToStart", body)
+        self.assertIn("YA70工作原理是什么？", body)
+        self.assertIn("有什么工作模式？", body)
+        self.assertIn("帮我生成一份报告", body)
+        self.assertNotIn("帮我生成一份报告？", body)
+        self.assertIn("帮我分析一下这一周的数据", body)
+        self.assertIn("data-table", body)
+        self.assertIn("table-wrap", body)
+        self.assertIn("data-label", body)
+        self.assertIn("@media (max-width: 520px)", body)
 
     def test_health(self):
         status, body = self._get("/api/health")
         self.assertEqual(status, 200)
         self.assertIn('"ok"', body)
+
+    def test_internal_model_error_is_not_exposed(self):
+        result = SimpleNamespace(
+            detail="模型调用失败（error）：connection refused",
+            risk_flags=["llm_error"],
+        )
+        self.assertEqual(demo_server.public_detail(result), "")
 
     def test_chat_returns_answer(self):
         payload = self._post("/api/chat", {

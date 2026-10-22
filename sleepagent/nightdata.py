@@ -145,11 +145,17 @@ def build_facts(user_id: str, night: Night) -> None:
     setting = r.get("pressure_setting") or {}
     if p_avg is not None and p_p95 is not None:
         unit = r.get("pressure_unit", "hPa")
-        add("pressure-main", "pressure",
-            "平均治疗压力 " + _show(p_avg, unit) + "，P95 治疗压力 " + _show(p_p95, unit)
-            + "，最高 " + _show(p_max, unit) + "。"
-            + "P95 表示约 95% 的有效记录点不高于该值，它不是最大值。"
-            + "设定范围为 " + _show(setting.get("min")) + " 到 " + _show(setting.get("max")) + " " + unit + "。",
+        pressure_text = (
+            "平均治疗压力 " + _show(p_avg, unit) + "，P95 治疗压力 "
+            + _show(p_p95, unit) + "，最高 " + _show(p_max, unit)
+        )
+        pressure_text += "。P95 表示约 95% 的有效记录点不高于该值，它不是最大值。"
+        if setting.get("min") is not None and setting.get("max") is not None:
+            pressure_text += (
+                "设定范围为 " + _show(setting.get("min")) + " 到 "
+                + _show(setting.get("max")) + " " + unit + "。"
+            )
+        add("pressure-main", "pressure", pressure_text,
             "treat_pressure_avg / treat_pressure_p95 / treat_pressure_max / pressure_setting",
             "直接取源字段；P95 与平均值的差距按下文单独计算")
         add("pressure-diff", "pressure",
@@ -187,23 +193,31 @@ def build_facts(user_id: str, night: Night) -> None:
             + "，低通气指数 " + str(r.get("hypopnea_index", "未提供"))
             + "，中枢性呼吸暂停指数 " + str(r.get("central_apnea_index", "未提供")) + "。",
             "ahi / apnea_index / hypopnea_index / central_apnea_index", "分别读取，不互相推算")
-        total = r.get("apnea_count_total", 0) + r.get("hypopnea_count_total", 0)
-        add("events-total", "events",
-            "整晚共记录到 " + _show(total) + " 次事件：呼吸暂停 "
-            + _show(r.get("apnea_count_total"), "次") + "、低通气 "
-            + _show(r.get("hypopnea_count_total"), "次") + "、其中中枢性 "
-            + _show(r.get("ca_count_total"), "次") + "。"
-            "次数与指数必须区分：次数是整晚发生了几次，指数是平均每小时的发生频率。",
-            "apnea_count_total / hypopnea_count_total / ca_count_total", "求和；并与指数分别列出")
-        dur = r.get("apnea_duration_total_sec", 0) + r.get("hypopnea_duration_total_sec", 0)
-        add("events-duration", "events",
-            "事件累计持续时间 " + _show(dur, "秒") + "，其中呼吸暂停累计 "
-            + _show(r.get("apnea_duration_total_sec"), "秒") + "、低通气累计 "
-            + _show(r.get("hypopnea_duration_total_sec"), "秒") + "。"
-            "最长的无事件时段为 " + _show(r.get("longest_event_free_minutes"), "分钟") + "。"
-            "本晚未提供逐条事件明细，因此无法说明事件在时段上的聚集情况。",
-            "apnea_duration_total_sec / hypopnea_duration_total_sec / longest_event_free_minutes",
-            "求和；明细缺失时明确标注")
+        apnea_n = r.get("apnea_count_total")
+        hyp_n = r.get("hypopnea_count_total")
+        ca_n = r.get("ca_count_total")
+        if apnea_n is not None or hyp_n is not None:
+            total = (apnea_n or 0) + (hyp_n or 0)
+            add("events-total", "events",
+                "整晚记录到事件共 " + _show(total) + " 次：呼吸暂停 "
+                + _show(apnea_n, "次") + "、低通气 "
+                + _show(hyp_n, "次") + "、其中中枢性 "
+                + _show(ca_n, "次") + "。"
+                "次数与指数必须区分：次数是整晚发生了几次，指数是平均每小时的发生频率。",
+                "apnea_count_total / hypopnea_count_total / ca_count_total",
+                "仅对已提供的次数求和")
+        apnea_sec = r.get("apnea_duration_total_sec")
+        hyp_sec = r.get("hypopnea_duration_total_sec")
+        if apnea_sec is not None or hyp_sec is not None:
+            dur = (apnea_sec or 0) + (hyp_sec or 0)
+            add("events-duration", "events",
+                "事件累计持续时间 " + _show(dur, "秒") + "，其中呼吸暂停累计 "
+                + _show(apnea_sec, "秒") + "、低通气累计 "
+                + _show(hyp_sec, "秒") + "。"
+                "最长的无事件时段为 " + _show(r.get("longest_event_free_minutes"), "分钟") + "。"
+                "本晚未提供逐条事件明细，因此无法说明事件在时段上的聚集情况。",
+                "apnea_duration_total_sec / hypopnea_duration_total_sec / longest_event_free_minutes",
+                "仅对已提供的时长求和；明细缺失时明确标注")
 
     # ---- 呼吸概况 ----
     tv_avg = r.get("tidal_volume_avg_ml")
@@ -296,6 +310,7 @@ CALENDAR_WORDS = (
     (("大前天", "三天前"), 3),
     (("前天", "前晚"), 2),
     (("昨晚", "昨天"), 1),
+    (("今天", "今日"), 0),
 )
 
 # 数据相对词：以数据集里最新一晚为基准。
@@ -401,9 +416,12 @@ def time_clarification(status: str, note: str, dates) -> str:
         ordered = sorted({str(item) for item in (dates or []) if item})
         latest = ordered[-1] if ordered else "（暂无记录）"
         return ("数据里没有" + (note or "这一天") + "的记录。最近一次使用是 " + latest + "。\n"
-                "你是想看这一晚吗？也可以直接给日期，例如「" + latest + "」。")
+                "你是想看最近一次使用（" + latest + "），还是指定其他日期？")
     if status == "missing_date":
-        head = note or "你给的日期在数据里没有记录。"
+        ordered = sorted({str(item) for item in (dates or []) if item})
+        latest = ordered[-1] if ordered else "（暂无记录）"
+        return ((note or "你给的日期在数据里没有记录。") + "\n"
+                "你是想看最近一次使用（" + latest + "），还是指定其他日期？")
     else:
         head = "你说的「" + (note or "这个时间") + "」我还对应不到具体某一晚。"
     return (head + "\n请直接给日期，例如「2026-10-14」或「10月14日」。"
@@ -456,7 +474,7 @@ def resolve_night(user_id: str, nights: list, question: str,
         selection_text = selection_text.replace("前一晚", "").replace("上一晚", "")
 
     word, days = calendar_word(selection_text)
-    if word:
+    if word and (word not in ("今天", "今日") or looks_like_data_query(text)):
         moment = today if isinstance(today, datetime.date) else datetime.date.today()
         if isinstance(moment, datetime.datetime):
             moment = moment.date()

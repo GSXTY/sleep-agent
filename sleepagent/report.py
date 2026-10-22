@@ -249,17 +249,6 @@ def render(night: nightdata.Night) -> dict:
     lines.append("本报告不提供治疗压力或设备参数的调整建议，参数请遵医嘱由专业人员评估。")
     if night.missing:
         lines.append("以下字段本次缺失，相关判断已跳过：" + "、".join(sorted(set(night.missing))) + "。")
-    lines.append("验收结果：" + ("通过" if verdict["passed"] else "未通过"))
-    if not verdict["passed"]:
-        # 非阻断：报告照常输出，但列出问题便于排查。
-        # 单个模块缺数据会一次报出多条，这里每个模块最多展示 3 条并汇总总数，
-        # 避免用户看到十几行内部主题标识。
-        for item in verdict["results"]:
-            failures = item["failures"]
-            if not failures:
-                continue
-            for failure in failures[:3]:
-                lines.append("  · " + item["module"] + "：" + failure)
-            if len(failures) > 3:
-                lines.append("  · " + item["module"] + "：另有 " + str(len(failures) - 3) + " 项同类问题")
+    # 验收结果属于内部质量信息，通过 structured["acceptance"] 和运行日志返回，
+    # 不拼进面向用户的报告正文。
     return {"modules": modules, "acceptance": verdict, "text": "\n".join(lines)}

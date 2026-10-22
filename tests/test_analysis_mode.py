@@ -17,12 +17,12 @@ class AnalysisModeTest(unittest.TestCase):
         return pipeline.answer(question, self.night, [], use_llm=False)
 
     def test_analysis_uses_data_report(self):
-        result = self._ask("分析一下")
+        result = self._ask("分析最近7天")
         self.assertEqual(result.mode, "数据分析")
         for section in ("先给结论", "数据概览", "主要发现", "建议",
                         "与上一晚对比", "阶段对比", "窗口统计", "值得回看"):
             self.assertIn(section, result.text)
-        self.assertIn("不能当作完整 30 天基线", result.text)
+        self.assertIn("本次请求最近 7 天", result.text)
         self.assertIn("5.7", result.text)
         self.assertIn("18.1", result.text)
         self.assertIn("| AHI | 6.9次/小时 | 5.7次/小时", result.text)
@@ -33,11 +33,17 @@ class AnalysisModeTest(unittest.TestCase):
         self.assertIn("400.86", result.text)
 
     def test_analysis_variants(self):
-        for question in ("帮我分析一下", "解读一下这份报告", "看看数据",
-                         "综合分析这几天的数据", "对比分析一下最近的记录",
+        for question in ("综合分析这几天的数据",
+                         "对比分析一下最近7天的记录",
                          "分析一下最近30天的趋势和阶段变化",
                          "分析最近30天数据"):
             self.assertEqual(self._ask(question).mode, "数据分析", question)
+
+    def test_generic_analysis_requests_scope(self):
+        for question in ("分析一下", "帮我分析一下", "看看数据"):
+            result = self._ask(question)
+            self.assertEqual(result.mode, "范围确认", question)
+            self.assertEqual({item["type"] for item in result.candidates}, {"scope"})
 
     def test_analysis_includes_comparison_and_multi_night_statistics(self):
         result = self._ask("分析一下最近一周的平均、变化，并和上一晚对比")

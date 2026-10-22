@@ -42,6 +42,16 @@ class TestHistoryCompaction(unittest.TestCase):
         self.assertNotIn("AHI", messages[1]["content"])
         self.assertIn("2026-10-15", messages[1]["content"])
 
+    def test_app_report_insight_history_keeps_follow_up_context(self):
+        result = pipeline.answer(
+            "解读一下我的App报告", self.night, [], use_llm=False
+        )
+        messages = chat.history_messages(
+            "解读一下我的App报告", result, self.night
+        )
+        self.assertEqual(messages[1]["content"], result.text)
+        self.assertIn("漏气", messages[1]["content"])
+
     def test_device_prompt_forbids_reusing_history_numbers(self):
         self.assertIn("历史轮次", pipeline.DEVICE_PROMPT)
         self.assertIn("不得复用", pipeline.DEVICE_PROMPT)

@@ -9,6 +9,13 @@
 | [PRODUCT_DOC_SOURCES.md](PRODUCT_DOC_SOURCES.md) | 资料优先级与冲突处理：说明书优先、销售资料不入检索 |
 | [BADCASE_WORKFLOW.md](BADCASE_WORKFLOW.md) | Bad case 诊断与回流操作手册：三层定位、记录命令、回归标准 |
 | [DEMO_GUIDE.md](DEMO_GUIDE.md) | App 内嵌 Demo：H5 聊天页、WebView 接法、评估清单 |
+| [DATA_SOURCE.md](DATA_SOURCE.md) | sample/backend 数据源切换、环境变量和正式 App 鉴权边界 |
+| [YA70_API_TEST.md](YA70_API_TEST.md) | YA70 日期区间接口测试与字段适配 |
+| [REPORT_SCOPE.md](REPORT_SCOPE.md) | 单晚、近 7 天、近 30 天报告与情况查询范围 |
+| [ANALYSIS_MODES.md](ANALYSIS_MODES.md) | 设备数据趋势、对比、评分分析和单日分析 |
+| [APP_REPORT_INSIGHTS.md](APP_REPORT_INSIGHTS.md) | App 报告五板块结构化解读接口 |
+| [QUERY_PLANNING.md](QUERY_PLANNING.md) | 规则优先、低置信度才调用 LLM 的查询规划层 |
+| [COST_CONTROL.md](COST_CONTROL.md) | 公共问答缓存、上下文预算、token 预算与日志 |
 | [BACKEND_DATA_BRIEF.md](BACKEND_DATA_BRIEF.md) | 后端沟通版：一个接口、字段清单、三条硬规则、8 个确认项 |
 | [BACKEND_DATA_API_V1.md](BACKEND_DATA_API_V1.md) | 后端数据接口需求、字段契约、缺失语义、错误降级与对账清单 |
 

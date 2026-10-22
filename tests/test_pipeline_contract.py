@@ -56,11 +56,13 @@ class TestPipelineContract(unittest.TestCase):
 
     def test_report_response_carries_structured_data(self):
         result = pipeline.answer(
-            pipeline.UserQuery("生成报告", use_llm=False),
+            pipeline.UserQuery("生成 2026-10-15 的报告", use_llm=False),
             self.night,
         )
         self.assertEqual(result.mode, "报告生成")
         self.assertEqual(result.tier, "strong")
+        self.assertEqual(result.detail, "单晚报告")
+        self.assertNotIn("验收", result.detail)
         self.assertIsNotNone(result.structured)
         self.assertIn("record_date", result.structured)
         self.assertIn("acceptance", result.structured)

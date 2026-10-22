@@ -24,7 +24,9 @@ python demo_server.py
 浏览器打开 `http://127.0.0.1:8100`；手机同一局域网访问时用
 `python demo_server.py --host 0.0.0.0`，地址会打印在窗口里。
 
-页面支持消息气泡、候选按钮、报告指标卡、来源折叠和 👍/👎 反馈。
+页面支持消息气泡、候选按钮、报告指标卡、Markdown 标题/列表、
+移动端指标卡、来源折叠和 👍/👎 反馈。回答正文不插入来源，
+资料来源统一放在“查看来源”中。
 接法、评估清单和已知限制见 [App 内嵌 Demo 指南](docs/DEMO_GUIDE.md)。
 
 ### 命令行
@@ -55,7 +57,36 @@ python chat.py --report                     # 单晚治疗报告
 python -m unittest discover -s tests -v
 ```
 
-当前状态：355 项测试全部通过。
+当前状态：416 项测试全部通过。
+
+### 配置与安全
+
+复制示例配置后再填写本地凭据：
+
+```powershell
+Copy-Item config.example.json config.json
+```
+
+以下内容不会进入 Git：
+
+- `config.json`：聊天模型 API Key；
+- `.local/`：真实后台地址、测试用户 ID、测试 key 和本地索引；
+- `logs/`：运行日志。
+
+接入真实后台时，把配置写入 `.local/ya70_api.json`，或使用
+`SLEEPAGENT_USER_ID`、`SLEEPAGENT_BACKEND_URL`、
+`SLEEPAGENT_BACKEND_KEY` 环境变量。仓库和 README 只保留虚构 ID 与示例地址。
+详细说明见 [Agent 数据源接入](docs/DATA_SOURCE.md)。
+
+### 成本控制
+
+- 指标定义、安全边界、日期时间、报告和趋势分析不调用大模型；
+- 高频公共产品问答使用 1 小时内存缓存；
+- 产品问题默认不携带无关历史，设备数据最多 3 轮，通用对话最多 4 轮；
+- 产品检索最多发送 4 个候选切片，并按场景限制输出 token；
+- 日志记录 `Tokens:输入/输出` 和 `CACHE_HIT`，便于核算成本。
+
+完整策略见 [大模型成本控制](docs/COST_CONTROL.md)。
 
 交付文档：
 
@@ -64,6 +95,12 @@ python -m unittest discover -s tests -v
 - [接口契约](docs/INTERFACE_CONTRACT_V1.md)
 - [产品资料维护规范](docs/DOC_AUTHORING_GUIDE.md)
 - [设备数据分析与对比](docs/ANALYSIS_MODES.md)
+- [App 报告解读接入](docs/APP_REPORT_INSIGHTS.md)
+- [报告与情况查询范围](docs/REPORT_SCOPE.md)
+- [语义查询规划层](docs/QUERY_PLANNING.md)
+- [YA70 日期区间接口测试](docs/YA70_API_TEST.md)
+- [Agent 数据源接入](docs/DATA_SOURCE.md)
+- [大模型成本控制](docs/COST_CONTROL.md)
 - [Bad Case 诊断与回流](docs/BADCASE_WORKFLOW.md)
 - [App 内嵌 Demo 指南](docs/DEMO_GUIDE.md)
 - [后端数据对接 · 沟通版](docs/BACKEND_DATA_BRIEF.md)
@@ -81,11 +118,13 @@ python -m unittest discover -s tests -v
 |---|---|---|---|
 | 1 | **安全边界** | 红旗症状 / 绝对与相对禁忌症 / 要求调压 / 诊断 / 用药 / 停用 | 固定话术，**不经过大模型** |
 | 2 | **系统信息** | 问日期、星期、时间 | 由程序直接给出本机时间，**不经过大模型** |
-| 3 | **报告生成** | 说「出个报告」「整体情况怎么样」 | 确定性报告，不经过大模型 |
-| 4 | **产品文档** | 查到产品资料，且问题是「怎么做」型 | 依据资料回答并注明出处 |
-| 5 | **设备数据** | 命中指标主题且事实层有数据 | 给出本晚真实数值 |
-| 6 | **指标解释** | 只命中知识条目 | 指标含义 + 限制 + 建议 |
-| 7 | **通用对话** | 其余问题 | 直接交给大模型 |
+| 3 | **范围确认** | 「生成报告」「我的情况怎么样」但未说单晚/7天/30天 | 给三个范围选项 |
+| 4 | **App报告解读** | 「解读App报告」「报告里的漏气怎么理解」 | 板块洞察 + 结构化字段，不识别图片 |
+| 5 | **报告生成** | 明确单晚、近7天或近30天 | 确定性报告，不经过大模型 |
+| 6 | **产品文档** | 查到产品资料，且问题是「怎么做」型 | 依据资料回答，来源折叠展示 |
+| 7 | **设备数据** | 命中指标主题且事实层有数据 | 给出本晚真实数值 |
+| 8 | **指标解释** | 只命中知识条目 | 指标含义 + 限制 + 建议 |
+| 9 | **通用对话** | 其余问题 | 直接交给大模型 |
 
 此外还有三类不直接作答的交互：`时间确认`（昨天没有记录时问是不是最近一次使用）、
 `意图确认`（听不出要做什么时给四个方向）、`产品文档（未命中）`（给出近似章节候选）。
@@ -126,9 +165,12 @@ python -m unittest discover -s tests -v
 
 ### 数据分析与对比
 
-`分析一下` 默认按最近 30 天做综合分析，数据不足时明确降级。它固定包含
-先给结论、本晚概览、两晚对比、近期/此前阶段对比、平均值/中位数/最低/最高、
-走势、波动、偏离日和建议。
+`分析一下` 会先询问单日、近 7 天还是近 30 天，不默认扩展范围。
+单日分析只描述指定日期，不自动做前一天比较；近 7/30 天分析才包含阶段对比、
+平均值/中位数/最低/最高、走势、波动和偏离日。
+
+单日分析结束后，用户可继续选择“和前一天比较”或“最近7天有什么变化”；
+后续回答只针对所选问题。
 
 明确的两晚比较仍可直接问：
 
@@ -146,6 +188,24 @@ python -m unittest discover -s tests -v
 ```
 
 详细分流规则见 [设备数据分析与对比](docs/ANALYSIS_MODES.md)。
+
+设备评分可直接这样问：
+
+```text
+我的设备评分有什么变化
+最近30天设备评分趋势
+为什么我的评分下降了
+```
+
+回答会拆解时长、面罩、呼吸事件三个分项的分数变化，并逐项列出同晚使用时长、
+漏气和 AHI 证据、分项含义和建议。
+
+### 报告范围
+
+“生成报告”“我的情况怎么样”如果没有说明单晚、近 7 天或近 30 天，会先追问范围。
+单晚日期没有记录时，会询问是否看上一次使用或指定日期；周/月数据不足时按已有记录分析。
+
+详见 [报告与情况查询范围](docs/REPORT_SCOPE.md)。
 
 ---
 
@@ -236,7 +296,7 @@ python eval_retrieval.py --verbose    # 附未命中清单
 ```powershell
 python run_checks.py              # 单元测试 + 检索评估
 python run_checks.py --verbose    # 附检索未命中清单
-python eval_agent.py              # 端到端行为评测（65 条典型提问，规则版）
+python eval_agent.py              # 端到端行为评测（79 条典型提问，规则版）
 python eval_agent.py --llm        # 同上，真调大模型并检查校验闸门与耗时
 python eval_retrieval.py --diagnose   # 逐条诊断：召回、闸门还是排序问题
 python demo_server.py             # App 内嵌 Demo：http://127.0.0.1:8100
@@ -244,7 +304,7 @@ python demo_server.py             # App 内嵌 Demo：http://127.0.0.1:8100
 
 也可以直接双击项目根目录的 `demo.cmd`，窗口会打印本机和手机访问地址。
 
-当前：355 项测试通过，端到端规则评测 65/65；混合检索基线 R@1 100% / R@3 100%。
+当前：416 项测试通过，端到端规则评测 79/79；混合检索基线 R@1 100% / R@3 100%。
 
 `eval_agent.py` 从入口层模拟真实提问，按类别检查模式、关键数字和选项，
 用来发现"单测全绿但整机答错"的问题。`--llm` 会额外统计模型耗时并把
@@ -559,8 +619,13 @@ sleepagent/
   router.py                 意图与主题识别
   product_kb.py             产品文档加载与检索（含 docx 解析）
   knowledge.py              指标知识库检索（复用原项目 base.json）
+  query_planner.py          规则/LLM 语义查询规划（意图+指标+窗口）
+  data_source.py            sample/backend 数据源切换与缓存入口
+  backend_ya70.py           YA70 接口请求和字段映射
   nightdata.py              确定性事实层
+  analysis.py               7/14/30 天趋势、阶段对比、波动与偏离日
   report.py                 单晚报告生成
+  report_insight.py         App 报告五板块结构化解读
   acceptance.py             报告验收（复用原项目验收合同）
   validation.py             模型输出校验（分模式）
   runtime_info.py           当前日期时间：程序直答 + 注入提示词

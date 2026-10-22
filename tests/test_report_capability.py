@@ -20,9 +20,14 @@ class ReportCapabilityTest(unittest.TestCase):
         self.assertNotIn("单晚治疗报告（", result.text)
 
     def test_explicit_report_request_still_generates(self):
-        result = pipeline.answer("帮我生成报告", self.night, [], use_llm=False)
+        result = pipeline.answer("帮我生成 2026-10-15 的报告", self.night, [], use_llm=False)
         self.assertEqual(result.mode, "报告生成")
         self.assertIn("单晚治疗报告（", result.text)
+
+    def test_scope_less_report_request_asks_first(self):
+        result = pipeline.answer("帮我生成报告", self.night, [], use_llm=False)
+        self.assertEqual(result.mode, "范围确认")
+        self.assertNotIn("单晚治疗报告（", result.text)
 
     def test_report_content_question_goes_to_docs(self):
         result = pipeline.answer("主机报告会显示哪些指标？", self.night, [], use_llm=False)
@@ -33,7 +38,7 @@ class ReportCapabilityTest(unittest.TestCase):
 
     def test_generate_with_metrics_still_generates(self):
         result = pipeline.answer("帮我生成报告，包含哪些指标", self.night, [], use_llm=False)
-        self.assertEqual(result.mode, "报告生成")
+        self.assertEqual(result.mode, "范围确认")
 
 
 if __name__ == "__main__":

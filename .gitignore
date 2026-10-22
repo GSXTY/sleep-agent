@@ -2,6 +2,10 @@
 __pycache__/
 *.pyc
 config.json
+.env
+.env.*
+*.pem
+*.key
 logs/
 *.log
 *.tmp

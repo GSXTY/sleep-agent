@@ -31,9 +31,20 @@ class ContextNightTest(unittest.TestCase):
         night = next(n for n in nightdata.load_dataset()
                      if str(n.raw.get("record_date")) == "2026-10-14")
         result = pipeline.answer("我的数据正常吗", night, [], use_llm=False)
+        self.assertEqual(result.mode, "范围确认")
+
+    def test_follow_up_inherits_previous_scope(self):
+        night = next(n for n in nightdata.load_dataset()
+                     if str(n.raw.get("record_date")) == "2026-10-14")
+        history = [
+            {"role": "user", "content": "2026-10-14 的使用情况"},
+            {"role": "assistant", "content": "已读取该晚数据。"},
+        ]
+        result = pipeline.answer(
+            "我的数据正常吗", night, history, use_llm=False
+        )
         self.assertEqual(result.mode, "数据分析")
         self.assertIn("2026-10-14", result.text)
-        self.assertIn("边界", result.text)
 
 
 if __name__ == "__main__":

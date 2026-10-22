@@ -22,6 +22,9 @@ class TestLoggingContract(unittest.TestCase):
     def setUpClass(cls):
         cls.night = nightdata.load_night()
 
+    def setUp(self):
+        pipeline.clear_public_cache()
+
     def test_normal_request_has_standard_fields_and_request_id(self):
         with self.assertLogs("sleepagent.pipeline", level="INFO") as captured:
             result = pipeline.answer(

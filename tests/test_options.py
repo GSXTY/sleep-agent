@@ -39,7 +39,7 @@ class OptionTestCase(unittest.TestCase):
         self.assertTrue(candidates)
         for item in candidates:
             self.assertEqual(set(item), {"type", "title", "value", "source", "visibility"})
-            self.assertIn(item["type"], ("date", "intent", "topic"))
+            self.assertIn(item["type"], ("date", "scope", "followup", "intent", "topic"))
             self.assertTrue(item["title"])
             self.assertTrue(item["value"])
 
