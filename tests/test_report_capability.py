@@ -24,6 +24,17 @@ class ReportCapabilityTest(unittest.TestCase):
         self.assertEqual(result.mode, "报告生成")
         self.assertIn("单晚治疗报告（", result.text)
 
+    def test_report_content_question_goes_to_docs(self):
+        result = pipeline.answer("主机报告会显示哪些指标？", self.night, [], use_llm=False)
+        self.assertTrue(result.mode.startswith("产品文档"), result.mode)
+        self.assertIn("AHI", result.text)
+        self.assertIn("P95", result.text)
+        self.assertNotIn("单晚治疗报告（", result.text)
+
+    def test_generate_with_metrics_still_generates(self):
+        result = pipeline.answer("帮我生成报告，包含哪些指标", self.night, [], use_llm=False)
+        self.assertEqual(result.mode, "报告生成")
+
 
 if __name__ == "__main__":
     unittest.main()

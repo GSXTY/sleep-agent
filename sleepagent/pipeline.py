@@ -250,6 +250,21 @@ def _asks_device_report_capability(question: str) -> bool:
     return asks and question_form
 
 
+REPORT_CONTENT_TERMS = ("哪些指标", "什么指标", "显示什么", "显示哪些",
+                        "包含什么", "包含哪些", "包括什么", "包括哪些",
+                        "报告内容", "看什么")
+REPORT_GENERATE_TERMS = ("生成", "出个", "给我", "帮我", "提供", "来一份")
+
+
+def _asks_report_content(question: str) -> bool:
+    """问报告里显示什么内容，不是让 Agent 生成报告。"""
+    if "报告" not in question:
+        return False
+    if any(term in question for term in REPORT_GENERATE_TERMS):
+        return False
+    return any(term in question for term in REPORT_CONTENT_TERMS)
+
+
 ANALYSIS_TERMS = ("分析一下", "分析下", "帮我分析", "解读一下", "解读下",
                   "评估一下", "分析这份", "分析这个", "看看数据")
 ANALYSIS_METRIC_TERMS = ("ahi", "漏气", "压力", "潮气量", "呼吸频率",
@@ -738,8 +753,9 @@ def answer(query: UserQuery | str, night: nightdata.Night,
 
     intent, _ = social.classify(question)
     social_intent = intent
-    if intent == "report" and _asks_device_report_capability(question):
-        # "主机能生成报告吗"是产品功能问题，交给下面的产品文档检索
+    if intent == "report" and (_asks_device_report_capability(question)
+                               or _asks_report_content(question)):
+        # "主机能生成报告吗 / 报告显示哪些指标"是产品功能问题，交给下面的检索
         intent = "product_query"
     if _wants_analysis(question) and not any(
             term in question for term in ANALYSIS_METRIC_TERMS):
