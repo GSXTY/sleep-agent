@@ -208,8 +208,9 @@ def _chunk(doc_name: str, lines: list, visibility: str = VISIBILITY_USER) -> lis
             continue
         if "|" in line:
             cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-            if "字段名" in cells:
-                # 字段释义表的表头；后续每行单独成片，避免 P95 被埋在整张表里
+            if "字段名" in cells or "选项名称" in cells:
+                # 字段释义表 / 治疗设置表的表头；后续每行单独成片，
+                # 避免 P95、加湿等级被埋在整张表里
                 flush()
                 field_header = line
                 continue
@@ -348,7 +349,9 @@ def _normalize(text: str) -> str:
 MODE_QUERY_HINT = re.compile(r"(哪些|哪几种|几种|什么).{0,4}模式|模式.{0,6}(有哪些|有哪几种|有什么)")
 PRODUCT_WORDS = ("产品", "型号", "机器", "设备", "呼吸机")
 GLOSSARY_DOC = "报告指标说明"
-GLOSSARY_HINTS = ("什么是", "是什么", "什么意思", "含义", "字段", "指标", "解释", "定义")
+GLOSSARY_HINTS = ("字段", "指标含义", "什么意思", "含义", "解释", "定义",
+                  "P95", "AHI", "漏气量", "潮气量", "分钟通气量",
+                  "治疗评分", "面罩得分", "呼吸频率")
 
 
 def _normalize_query(question: str) -> str:
@@ -683,7 +686,7 @@ def retrieve(question: str, top_k: int = 3, min_score: float = None,
     """
     question = _normalize_query(strip_known_models(question))
     wanted = _wants_glossary(question)
-    pool = top_k if wanted else max(top_k * 3, 3)
+    pool = max(top_k * 3, 3)
     if visibility != VISIBILITY_ALL:
         hits = _retrieve_base(question, pool, min_score, min_coverage,
                               visibility, hybrid)

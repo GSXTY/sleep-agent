@@ -108,6 +108,29 @@ def build_faq(chapters: dict) -> str:
     return "\n".join(lines)
 
 
+def relocate_appendix(outputs: dict) -> dict:
+    """把误归到"十六、电磁兼容"的舒适设置表迁回使用指南。
+
+    说明书文末附录的表格前面没有标题，转换时会继承上一个章节，
+    导致"延时升压"的完整定义落在电磁兼容文件里。
+    """
+    emc = outputs.get("06_电磁兼容.md", "")
+    guide = outputs.get("02_使用指南.md", "")
+    if not emc or not guide:
+        return outputs
+    start = emc.find("舒适\n\n| 设置项 |")
+    end = emc.find("3.高级模式下查看报告", start)
+    if start < 0 or end < 0:
+        return outputs
+    block = emc[start:end].strip()
+    outputs["06_电磁兼容.md"] = (emc[:start] + emc[end:]).rstrip() + "\n"
+    section = ("## 常用设置说明\n\n"
+               "以下为设备治疗设置的说明，最后一列标注各模式是否支持。\n\n"
+               + block + "\n")
+    outputs["02_使用指南.md"] = guide.rstrip() + "\n\n" + section
+    return outputs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="拆分说明书为多份 Markdown")
     parser.add_argument("--write", action="store_true")
@@ -129,6 +152,7 @@ def main() -> int:
         outputs[filename] = "# " + title + "\n\n" + SOURCE_NOTE + "\n\n" + body + "\n"
 
     outputs["08_常见问题.md"] = build_faq(chapters)
+    outputs = relocate_appendix(outputs)
 
     for filename, content in outputs.items():
         print("  " + filename.ljust(18) + str(len(content)).rjust(6) + " 字")

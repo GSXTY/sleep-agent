@@ -50,6 +50,12 @@ def topics_of(question: str) -> list:
 
 def route(question: str) -> dict:
     normalized = normalize(question)
+    topics = topics_of(question)
+    # "使用情况 / 整体怎么样"是概览，不是只看使用时长。
+    # 若同时出现具体指标（漏气、AHI、压力等），topics 会多于 usage，不受影响。
+    if topics == ["usage"] and any(
+            term in normalized for term in ("情况", "状况", "整体", "总结", "怎么样")):
+        topics = ["overall"]
     if any(t in normalized for t in OUT_OF_SCOPE_TERMS):
         return {"goal": "out_of_scope", "topics": ["overall"], "time_scope": "unspecified"}
     if any(p in normalized for p in ACTION_PHRASES):
@@ -73,4 +79,4 @@ def route(question: str) -> dict:
         else "current_night" if any(t in normalized for t in ("今晚", "昨晚", "本晚", "这晚", "当前"))
         else "unspecified"
     )
-    return {"goal": goal, "topics": topics_of(question), "time_scope": time_scope}
+    return {"goal": goal, "topics": topics, "time_scope": time_scope}

@@ -182,7 +182,7 @@ def main(argv: list) -> int:
     if args:
         question = " ".join(args)
         selection = nightdata.resolve_night(user_id, nights, question)
-        if selection.night is not None:
+        if selection.status != "none" and selection.night is not None:
             night = selection.night
         result = answer(
             UserQuery(question=question, use_llm=use_llm, user_id=user_id,
@@ -295,7 +295,7 @@ def main(argv: list) -> int:
 
         question, pending_note = resolve_pending_confirmation(question, history)
         selection = nightdata.resolve_night(user_id, nights, question)
-        if selection.night is not None:
+        if selection.status != "none" and selection.night is not None:
             night = selection.night
         result = answer(UserQuery(question=question, history=history,
                                   use_llm=use_llm, user_id=user_id,

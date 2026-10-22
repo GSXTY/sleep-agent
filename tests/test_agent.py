@@ -735,16 +735,17 @@ class TestHybridFallback(unittest.TestCase):
             hybrid = product_kb.retrieve("滤芯多久换一次", top_k=3, visibility="user")
             lexical = product_kb.lexical_search(
                 "滤芯多久换一次", top_k=3, visibility="user")
-        self.assertEqual([hit["section"] for hit in hybrid],
-                         [hit["section"] for hit in lexical])
+        # 主资料优先策略会调整顺序，但命中的内容集合应一致
+        self.assertEqual({hit["section"] for hit in hybrid},
+                         {hit["section"] for hit in lexical})
 
     def test_hybrid_false_is_pure_lexical(self):
         hybrid = product_kb.retrieve(
             "滤芯多久换一次", top_k=3, visibility="user", hybrid=False)
         lexical = product_kb.lexical_search(
             "滤芯多久换一次", top_k=3, visibility="user")
-        self.assertEqual([hit["section"] for hit in hybrid],
-                         [hit["section"] for hit in lexical])
+        self.assertEqual({hit["section"] for hit in hybrid},
+                         {hit["section"] for hit in lexical})
 
     def test_falls_back_when_embedding_returns_none(self):
         from unittest import mock

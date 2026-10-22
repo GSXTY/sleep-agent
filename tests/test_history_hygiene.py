@@ -53,7 +53,7 @@ class TestCrossTurnNumbers(unittest.TestCase):
         self.stale_history = [
             {"role": "user", "content": "提供报告"},
             {"role": "assistant",
-             "content": "AHI 5.7 次/小时，共 38 次事件，累计 372 秒，中枢性 5 次。"},
+             "content": "AHI 9.9 次/小时，共 77 次事件，累计 999 秒，中枢性 9 次。"},
         ]
 
     def _ask(self, answer_text, history):
@@ -70,12 +70,12 @@ class TestCrossTurnNumbers(unittest.TestCase):
 
     def test_reused_history_numbers_fail_validation(self):
         result, _ = self._ask(
-            "本晚治疗时长 402 分钟，设备总评分 84 分，AHI 5.7 次/小时。",
+            "本晚治疗时长 402 分钟，设备总评分 84 分，AHI 9.9 次/小时。",
             self.stale_history,
         )
         self.assertIn("规则版", result.mode)
         self.assertIn("未通过校验", result.detail)
-        self.assertNotIn("5.7", result.text)
+        self.assertNotIn("9.9", result.text)
 
     def test_clean_answer_passes_validation(self):
         result, _ = self._ask(
@@ -94,8 +94,8 @@ class TestCrossTurnNumbers(unittest.TestCase):
         )
         result, captured = self._ask("本晚治疗时长 402 分钟。", compact)
         joined = " ".join(str(item["content"]) for item in captured["messages"])
-        self.assertNotIn("5.7", joined)
-        self.assertNotIn("372", joined)
+        self.assertNotIn("9.9", joined)
+        self.assertNotIn("77", joined)
         self.assertIn("已校验", result.mode)
 
 

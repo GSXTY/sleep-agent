@@ -70,6 +70,11 @@ def trend_sentence(topic: str, trend: dict) -> str:
     return _trend_sentence(topic, trend)
 
 
+def summary_advice(night: nightdata.Night) -> dict:
+    """对外暴露报告里的总结建议，供"分析一下"复用同一套规则。"""
+    return _summary_advice(night)
+
+
 def build_modules(night: nightdata.Night) -> dict:
     trend = nightdata.trend_summary(night.user_id, night)
     modules = {}

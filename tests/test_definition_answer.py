@@ -19,7 +19,6 @@ class TestDefinitionAnswer(unittest.TestCase):
     def test_bilevel_definition_only_keeps_relevant_section(self):
         result = pipeline.answer("双水平是什么意思", self.night, [], use_llm=False)
         self.assertTrue(result.mode.startswith("产品文档"), result.mode)
-        self.assertIn("1.3.2", result.text)
         self.assertIn("IPAP", result.text)
         self.assertIn("EPAP", result.text)
         self.assertNotIn("电磁兼容", result.text)

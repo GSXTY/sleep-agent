@@ -237,6 +237,96 @@ def _wants_trend(question: str) -> bool:
     return any(term in question for term in TREND_REQUEST_TERMS)
 
 
+def _asks_device_report_capability(question: str) -> bool:
+    """问"主机能不能生成/查看报告"，不是让 Agent 生成报告。"""
+    if "报告" not in question:
+        return False
+    if not any(term in question for term in ("主机", "设备", "屏幕", "机器")):
+        return False
+    asks = any(term in question for term in
+               ("能", "可以", "支持", "有", "是否", "怎么", "在哪", "哪里"))
+    question_form = ("吗" in question or "?" in question or "？" in question
+                     or "怎么" in question or "在哪" in question or "哪里" in question)
+    return asks and question_form
+
+
+ANALYSIS_TERMS = ("分析一下", "分析下", "帮我分析", "解读一下", "解读下",
+                  "评估一下", "分析这份", "分析这个", "看看数据")
+ANALYSIS_METRIC_TERMS = ("ahi", "漏气", "压力", "潮气量", "呼吸频率",
+                         "分钟通气量", "事件", "模式", "使用时长", "评分", "趋势")
+
+
+def _wants_analysis(question: str) -> bool:
+    return any(term in question for term in ANALYSIS_TERMS)
+
+
+def _analysis_text(night: nightdata.Night) -> str:
+    """基于确定性事实生成单晚分析：概览、发现、建议、趋势。"""
+    facts = {item.fid: item.text for item in night.facts}
+    date = str(night.raw.get("record_date", "未知"))
+    lines = ["单晚数据分析（" + date + "）", "", "【数据概览】"]
+    for fid in ("usage-time", "treat-score", "pressure-main",
+                "events-ahi", "leak-main", "leak-mask-seal"):
+        if fid in facts:
+            lines.append("- " + facts[fid])
+
+    advice = report.summary_advice(night)
+    if advice["positives"] or advice["issues"]:
+        lines += ["", "【主要发现】"]
+        lines += ["- " + item for item in advice["positives"]]
+        lines += ["- " + item for item in advice["issues"]]
+    if advice["actions"]:
+        lines += ["", "【建议】"]
+        lines += ["- " + item for item in advice["actions"]]
+
+    trend = nightdata.trend_summary(night.user_id, night)
+    if trend["has_history"]:
+        lines += ["", "【多晚趋势】",
+                  report.trend_sentence("respiratory-events", trend)]
+
+    lines += ["", "【边界】单晚数据不能代表长期水平，不构成医疗诊断。"]
+    return "\n".join(lines)
+
+
+ADVICE_TERMS = ("有什么建议", "建议呢", "给点建议", "有什么改进", "怎么改善",
+                "有什么可以改进", "下一步建议", "有什么办法", "那建议")
+ASSESSMENT_TERMS = ("正常吗", "是否正常", "数据好吗", "数据怎么样",
+                   "数据有问题吗", "数据正常吗")
+
+
+def _wants_advice(question: str) -> bool:
+    return any(term in question for term in ADVICE_TERMS)
+
+
+def _wants_data_assessment(question: str) -> bool:
+    return "数据" in question and any(term in question for term in ASSESSMENT_TERMS)
+
+
+def _advice_text(night: nightdata.Night) -> str:
+    """分析之后的建议：只针对本晚数据，不涉及治疗参数。"""
+    advice = report.summary_advice(night)
+    raw = night.raw
+    basis = []
+    if raw.get("treat_time_minutes") is not None:
+        basis.append("使用时长 " + str(raw.get("treat_time_minutes")) + " 分钟")
+    if raw.get("ahi") is not None:
+        basis.append("AHI " + str(raw.get("ahi")))
+    if raw.get("air_leakage_p95") is not None:
+        basis.append("P95 漏气 " + str(raw.get("air_leakage_p95")) + " L/min")
+
+    lines = ["基于本晚数据的建议", ""]
+    if basis:
+        lines.append("依据：" + "、".join(basis) + "。")
+    if advice["actions"]:
+        lines += ["", "建议："] + ["- " + item for item in advice["actions"]]
+    else:
+        lines += ["", "本晚数据没有触发需要特别调整的规则，保持规律使用并继续观察即可。"]
+    if advice["issues"]:
+        lines += ["", "需要关注："] + ["- " + item for item in advice["issues"]]
+    lines += ["", "以上建议只针对本晚设备和佩戴情况，不涉及治疗参数调整，也不构成医疗诊断。"]
+    return "\n".join(lines)
+
+
 def _is_affirmation(text: str) -> bool:
     cleaned = re.sub(r"[\s，。！？、,.!?]", "", text or "")
     if not cleaned:
@@ -343,7 +433,8 @@ PERIOD_REPORT_TERMS = (
 # 时间指代：出现这些词说明问的是用户自己的数据
 TIME_REF_WORDS = ("昨晚", "昨天", "前天", "前晚", "大前天",
                   "前一天", "前一晚", "上一晚", "上一天",
-                  "最近", "最新", "这几天", "近几天", "这一晚", "那晚")
+                  "最近", "最新", "这几天", "近几天", "这一晚", "那晚",
+                  "上次", "上一次", "上回")
 
 TREND_REQUEST_TERMS = ("趋势", "走势", "最近几晚", "连续几晚", "这几天",
                        "最近7晚", "最近七晚", "近7晚", "近七晚",
@@ -647,6 +738,39 @@ def answer(query: UserQuery | str, night: nightdata.Night,
 
     intent, _ = social.classify(question)
     social_intent = intent
+    if intent == "report" and _asks_device_report_capability(question):
+        # "主机能生成报告吗"是产品功能问题，交给下面的产品文档检索
+        intent = "product_query"
+    if _wants_analysis(question) and not any(
+            term in question for term in ANALYSIS_METRIC_TERMS):
+        return emit(
+            _analysis_text(night),
+            "数据分析",
+            "基于本晚确定性事实",
+            sources=[item.fid for item in night.facts],
+            validation={"ok": True, "problems": []},
+            intent="analysis",
+        )
+    if _wants_advice(question) and not any(
+            term in question for term in ANALYSIS_METRIC_TERMS):
+        return emit(
+            _advice_text(night),
+            "数据建议",
+            "基于本晚确定性事实",
+            sources=[item.fid for item in night.facts],
+            validation={"ok": True, "problems": []},
+            intent="advice",
+        )
+    if _wants_data_assessment(question):
+        # 沿用入口层当前选定的夜晚（没有新时间词时不会重置到最近一晚）
+        return emit(
+            _analysis_text(night),
+            "数据分析",
+            "按当前夜晚评估：" + str(night.raw.get("record_date", "未知")),
+            sources=[item.fid for item in night.facts],
+            validation={"ok": True, "problems": []},
+            intent="assessment",
+        )
     if intent == "report":
         payload = report.render(night)
         acceptance = payload["acceptance"]
@@ -732,12 +856,20 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             doc_hits = (glossary + [hit for hit in doc_hits if hit not in glossary])[:3]
     elif doc_hits:
         # 非定义问题（如"面罩怎么清洁"）不要被字段表的"面罩得分"抢走
-        product_hits = [hit for hit in raw_doc_hits
-                        if "报告指标说明" not in str(hit.get("doc", ""))]
-        if product_hits:
-            doc_hits = product_hits[:3]
+        trimmed = [hit for hit in doc_hits
+                   if "报告指标说明" not in str(hit.get("doc", ""))]
+        if trimmed:
+            # 保留 trim_low_relevance 的裁剪结果，避免把无关章节又加回来
+            doc_hits = trimmed
+        else:
+            product_hits = [hit for hit in raw_doc_hits
+                            if "报告指标说明" not in str(hit.get("doc", ""))]
+            if product_hits:
+                doc_hits = product_hits[:3]
 
-    replacement_guidance = product_features.replacement_guidance(question, raw_doc_hits)
+    primary_hits = [hit for hit in raw_doc_hits
+                    if not str(hit.get("doc", "")).startswith("10_")]
+    replacement_guidance = product_features.replacement_guidance(question, primary_hits)
     if replacement_guidance:
         return emit(
             replacement_guidance,
@@ -871,6 +1003,8 @@ def answer(query: UserQuery | str, night: nightdata.Night,
         mode = "指标解释"
     elif has_time_ref and picked:
         mode = "设备数据"
+        if not any(item.fid == "data-coverage" for item in picked):
+            picked = [nightdata.coverage_fact(request.user_id, night)] + picked
     elif doc_hits and product_priority:
         mode = "产品文档"
     elif picked:
