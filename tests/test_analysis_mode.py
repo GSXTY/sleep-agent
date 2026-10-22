@@ -19,10 +19,13 @@ class AnalysisModeTest(unittest.TestCase):
     def test_analysis_uses_data_report(self):
         result = self._ask("分析一下")
         self.assertEqual(result.mode, "数据分析")
-        for section in ("数据概览", "主要发现", "建议", "多晚趋势"):
+        for section in ("数据概览", "主要发现", "建议", "与上一晚对比",
+                        "最近 7 晚平均", "多晚趋势"):
             self.assertIn(section, result.text)
         self.assertIn("5.7", result.text)
         self.assertIn("18.1", result.text)
+        self.assertIn("AHI 6.9 → 5.7", result.text)
+        self.assertIn("400.86", result.text)
 
     def test_analysis_variants(self):
         for question in ("帮我分析一下", "解读一下这份报告", "看看数据"):

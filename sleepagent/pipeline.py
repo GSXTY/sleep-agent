@@ -295,6 +295,33 @@ def _analysis_text(night: nightdata.Night) -> str:
         lines += ["- " + item for item in advice["actions"]]
 
     trend = nightdata.trend_summary(night.user_id, night)
+    if night.history:
+        previous = sorted(night.history,
+                          key=lambda item: str(item.get("record_date")))[-1]
+        parts = []
+        for label, key, unit in (("使用时长", "treat_time_minutes", "分钟"),
+                                 ("AHI", "ahi", "次/小时"),
+                                 ("P95 漏气", "air_leakage_p95", "L/min")):
+            older, newer = previous.get(key), night.raw.get(key)
+            if older is not None and newer is not None:
+                parts.append(label + " " + str(older) + " → " + str(newer)
+                             + "（" + _diff_compare(older, newer, unit) + "）")
+        if parts:
+            lines += ["", "【与上一晚对比】", "- " + "；".join(parts)]
+
+    if trend["nights"]:
+        averages = []
+        for label, key, unit in (("使用时长", "treat_time_minutes", "分钟"),
+                                 ("AHI", "ahi", "次/小时"),
+                                 ("P95 漏气", "air_leakage_p95", "L/min")):
+            values = [float(item[key]) for item in trend["nights"]
+                      if item.get(key) is not None]
+            if values:
+                averages.append(label + " " + str(round(sum(values) / len(values), 2)) + unit)
+        if averages:
+            lines += ["", "【最近 " + str(len(trend["nights"])) + " 晚平均】",
+                      "- " + "、".join(averages)]
+
     if trend["has_history"]:
         lines += ["", "【多晚趋势】",
                   report.trend_sentence("respiratory-events", trend)]
@@ -336,6 +363,60 @@ def _wants_report_compare(question: str) -> bool:
     dates = re.findall(r"\d{4}-\d{1,2}-\d{1,2}", question)
     return (any(term in question for term in COMPARE_TERMS)
             and (any(term in question for term in COMPARE_CONTEXT) or len(dates) >= 2))
+
+
+TREND_INTENT_TERMS = ("这几天", "最近几晚", "最近几天", "最近一周", "最近7天",
+                      "近7天", "趋势", "走势", "变化趋势", "有什么变化", "波动")
+TREND_METRICS = (
+    ("使用时长", "treat_time_minutes", "分钟"),
+    ("AHI", "ahi", "次/小时"),
+    ("平均治疗压力", "treat_pressure_avg", "hPa"),
+    ("P95 漏气", "air_leakage_p95", "L/min"),
+    ("平均潮气量", "tidal_volume_avg_ml", "mL"),
+    ("平均呼吸频率", "respiratory_rate_avg", "次/分钟"),
+    ("平均分钟通气量", "minute_ventilation_avg_lpm", "L/min"),
+)
+
+
+def _wants_trend_summary(question: str) -> bool:
+    # 带具体指标的"最近7晚 AHI 趋势"仍交给设备数据模式
+    if any(term in question.lower() for term in
+           ("ahi", "漏气", "压力", "潮气量", "呼吸频率", "分钟通气量")):
+        return False
+    if any(term in question for term in TREND_INTENT_TERMS):
+        return True
+    return ("平均" in question
+            and any(term in question for term in ("最近", "这几", "几天", "一周", "7天")))
+
+
+def _trend_summary_text(night: nightdata.Night) -> str:
+    trend = nightdata.trend_summary(night.user_id, night)
+    nights = trend["nights"]
+    if not nights:
+        return "这几晚没有可用于趋势比较的指标。"
+    first_date = str(nights[0].get("record_date", "?"))
+    last_date = str(nights[-1].get("record_date", "?"))
+    lines = ["最近 " + str(len(nights)) + " 个有记录夜晚（" + first_date
+             + " ~ " + last_date + "）", "",
+             "| 指标 | 平均值 | 最低 | 最高 | 首晚→末晚 | 走势 |",
+             "|---|---|---|---|---|---|"]
+    for label, key, unit in TREND_METRICS:
+        values = [(str(item.get("record_date", "")), float(item[key]))
+                  for item in nights if item.get(key) is not None]
+        if not values:
+            continue
+        nums = [value for _, value in values]
+        mean = round(sum(nums) / len(nums), 2)
+        change = round(nums[-1] - nums[0], 2)
+        direction = "上升" if change > 0.05 else "下降" if change < -0.05 else "平稳"
+        lines.append("| " + label + " | " + str(mean) + unit
+                     + " | " + str(round(min(nums), 2)) + unit
+                     + " | " + str(round(max(nums), 2)) + unit
+                     + " | " + str(round(nums[0], 2)) + " → " + str(round(nums[-1], 2))
+                     + "（" + ("+" if change > 0 else "") + str(change) + unit + "）"
+                     + " | " + direction + " |")
+    lines += ["", "说明：趋势来自设备记录，单晚波动不代表因果，也不构成医疗诊断。"]
+    return "\n".join(lines)
 
 
 def _fmt_compare(value, unit=""):
@@ -846,6 +927,15 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                                or _asks_report_content(question)):
         # "主机能生成报告吗 / 报告显示哪些指标"是产品功能问题，交给下面的检索
         intent = "product_query"
+    if _wants_trend_summary(question):
+        return emit(
+            _trend_summary_text(night),
+            "趋势分析",
+            "最近多晚统计",
+            sources=[key for _, key, _ in TREND_METRICS],
+            validation={"ok": True, "problems": []},
+            intent="trend_summary",
+        )
     if _wants_report_compare(question):
         pair = _compare_pair(night, question)
         if pair:
