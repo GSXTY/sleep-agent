@@ -317,6 +317,23 @@ def _wants_data_assessment(question: str) -> bool:
     return "数据" in question and any(term in question for term in ASSESSMENT_TERMS)
 
 
+def _prefer_scope(hits: list, scope) -> list:
+    """意图子库只做软排序：分数接近第一名时才提前，避免硬过滤漏内容。"""
+    if not hits or not scope:
+        return hits
+    allowed = {str(name) for name in scope}
+    top = max(float(hit.get("score") or 0) for hit in hits) or 1.0
+    preferred = [
+        hit for hit in hits
+        if str(hit.get("doc", "")) in allowed
+        and float(hit.get("score") or 0) >= top * 0.75
+    ]
+    if not preferred:
+        return hits
+    rest = [hit for hit in hits if hit not in preferred]
+    return preferred + rest
+
+
 def _advice_text(night: nightdata.Night) -> str:
     """分析之后的建议：只针对本晚数据，不涉及治疗参数。"""
     advice = report.summary_advice(night)
@@ -853,28 +870,27 @@ def answer(query: UserQuery | str, night: nightdata.Night,
     # 问「产品模式有哪些」时用「工作模式」检索：说明书里的章节叫「1.3工作模式」
     search_question = "工作模式有哪些" if _asks_product_modes(question) else question
     service = service_intent.detect(search_question)
-    allowed_docs = service["scope"] if service["confidence"] >= 0.7 else None
-    doc_hits = product_kb.retrieve(search_question, top_k=3,
-                                   allowed_docs=allowed_docs)
+    preferred_docs = service["scope"] if service["confidence"] >= 0.7 else None
+    doc_hits = product_kb.retrieve(search_question, top_k=6)
+    doc_hits = _prefer_scope(doc_hits, preferred_docs)[:3]
     raw_doc_hits = list(doc_hits)
     if not doc_hits and product_priority:
         # 「面罩多久换」这类问题只匹配到一个词，覆盖率刚好不到严格阈值。
         # 产品提问信号明确时放宽一次，避免漏检；通用问题不会走到这里。
         doc_hits = product_kb.retrieve(search_question, top_k=3,
-                                       min_score=3.0, min_coverage=0.2,
-                                       allowed_docs=allowed_docs)
-    if not doc_hits and allowed_docs and service["confidence"] < 0.9:
-        # 子库判断不够有把握时，退回全库再找一次
-        doc_hits = product_kb.retrieve(search_question, top_k=3)
+                                       min_score=3.0, min_coverage=0.2)
 
     # 错误码/型号类实体必须真实出现在命中内容里，否则视为没有资料
     codes = re.findall(r"(?<![A-Za-z0-9])[A-Za-z]\d{1,3}(?![A-Za-z0-9])", question)
     if codes and doc_hits:
+        # 示例资料不能作为错误码的正式依据
+        doc_hits = [hit for hit in doc_hits
+                    if str(hit.get("visibility")) != "examples"]
         joined = "\n".join(
             str(hit.get("section", "")) + " " + str(hit.get("text", ""))
             for hit in doc_hits
         ).lower()
-        if not all(code.lower() in joined for code in codes):
+        if not doc_hits or not all(code.lower() in joined for code in codes):
             doc_hits = []
             raw_doc_hits = []
     doc_hits = product_kb.trim_low_relevance(doc_hits, question=question)

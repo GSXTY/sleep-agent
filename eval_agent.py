@@ -114,6 +114,8 @@ CASES = [
          contains=("正式产品资料里没有",)),
     Case("产品文档", "主机报告会显示哪些指标？", modes=("产品文档",),
          contains=("AHI", "P95")),
+    Case("产品文档", "如何选择型号", modes=("产品文档",),
+         contains=("YA70B20", "AutoS")),
     Case("产品文档", "双水平是什么意思", modes=("产品文档",), contains=("IPAP",)),
     Case("产品文档", "为什么眼睛有点痛", modes=("产品文档",), contains=("眼睛刺痛",)),
     Case("产品文档", "湿化器怎么消毒", modes=("产品文档",), contains=("消毒",)),

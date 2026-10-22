@@ -26,6 +26,11 @@ class ServiceIntentTest(unittest.TestCase):
         result = service_intent.detect("这个东西怎么弄")
         self.assertIsNone(result["scope"])
 
+    def test_model_selection_includes_faq(self):
+        result = service_intent.detect("如何选择型号")
+        self.assertEqual(result["intent"], "product_overview")
+        self.assertIn("10_YA70A常见问题.md", result["scope"])
+
 
 class SubLibraryRetrievalTest(unittest.TestCase):
     @classmethod
@@ -46,6 +51,12 @@ class SubLibraryRetrievalTest(unittest.TestCase):
                                "11_常见操作补充.md"))
             for source in result.sources
         ), result.sources)
+
+    def test_model_selection_answers_from_faq(self):
+        result = pipeline.answer("如何选择型号", self.night, [], use_llm=False)
+        self.assertIn("产品文档", result.mode)
+        self.assertIn("YA70B20", result.text)
+        self.assertIn("AutoS", result.text)
 
 
 if __name__ == "__main__":
