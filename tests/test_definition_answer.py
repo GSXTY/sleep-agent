@@ -45,6 +45,14 @@ class TestDefinitionAnswer(unittest.TestCase):
         trimmed = product_kb.trim_low_relevance(hits)
         self.assertEqual([hit["section"] for hit in trimmed], ["A", "B"])
 
+    def test_model_name_does_not_trim_parameter_answer(self):
+        result = pipeline.answer(
+            "YA70A 的噪声是多少", self.night, [], use_llm=False
+        )
+        self.assertTrue(result.mode.startswith("产品文档"), result.mode)
+        self.assertIn("28dB", result.text)
+        self.assertIn("05_技术参数.md", result.text)
+
     def test_negated_pressure_advice_is_safe(self):
         result = validation.check_output(
             "不要自行调整治疗压力，请遵医嘱。", "材料", mode="medium"

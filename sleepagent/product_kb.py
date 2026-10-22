@@ -361,15 +361,16 @@ def _normalize_query(question: str) -> str:
     「1.3 工作模式」抢第一名。
     """
     text = question or ""
-    if "模式" not in text or "工作模式" in text:
-        return text
-    if "字段" in text:          # "治疗模式有哪些字段" 问的是报告字段，不是产品模式
-        return text
-    if not MODE_QUERY_HINT.search(text):
-        return text
-    if any(word in text for word in PRODUCT_WORDS) or len(text) <= 10:
-        return text.replace("模式", "工作模式", 1)
-    return text
+    if "模式" in text and "工作模式" not in text and "字段" not in text:
+        if MODE_QUERY_HINT.search(text):
+            if any(word in text for word in PRODUCT_WORDS) or len(text) <= 10:
+                text = text.replace("模式", "工作模式", 1)
+    # 型号被挖掉后，问题常剩“的噪声是多少”。去掉纯疑问外壳，
+    # 避免“的噪 / 声是”这些边缘 bigram 把覆盖率压到闸门下。
+    text = re.sub(r"^\s*的", "", text)
+    text = re.sub(r"(?:是)?多少(?:呢|啊)?\s*$", "", text)
+    text = re.sub(r"(?:多高|多大|多长)(?:呢|啊)?\s*$", "", text)
+    return text.strip()
 
 
 def _wants_glossary(question: str) -> bool:
@@ -658,6 +659,9 @@ def trim_low_relevance(hits: list, min_ratio: float = 0.5, question: str = "") -
     if not hits:
         return []
     if question:
+        # 型号只是检索过滤条件，不应因为第一片的标题里也含型号，
+        # 就把真正回答参数的章节全部裁掉。
+        question = _normalize_query(strip_known_models(question))
         top_section_tokens = _content_tokens(hits[0].get("section", ""))
         question_tokens = _content_tokens(question)
         if question_tokens & top_section_tokens:

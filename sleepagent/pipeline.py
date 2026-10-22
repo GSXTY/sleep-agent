@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from sleepagent import (embeddings, intent_fallback, knowledge, llm, nightdata,
+from sleepagent import (analysis, embeddings, intent_fallback, knowledge, llm, nightdata,
                         product_features, product_kb, product_models, report, router,
                         runtime_info, safety, service_intent, social, validation)
 from sleepagent.router import route
@@ -266,20 +266,99 @@ def _asks_report_content(question: str) -> bool:
 
 
 ANALYSIS_TERMS = ("分析一下", "分析下", "帮我分析", "解读一下", "解读下",
-                  "评估一下", "分析这份", "分析这个", "看看数据")
+                  "评估一下", "分析这份", "分析这个", "看看数据",
+                  "综合分析", "对比分析", "趋势分析", "分析最近",
+                  "分析过去", "帮我看看数据", "总结一下数据")
 ANALYSIS_METRIC_TERMS = ("ahi", "漏气", "压力", "潮气量", "呼吸频率",
-                         "分钟通气量", "事件", "模式", "使用时长", "评分", "趋势")
+                         "分钟通气量", "事件", "模式", "使用时长", "评分")
 
 
 def _wants_analysis(question: str) -> bool:
     return any(term in question for term in ANALYSIS_TERMS)
 
 
-def _analysis_text(night: nightdata.Night) -> str:
-    """基于确定性事实生成单晚分析：概览、发现、建议、趋势。"""
+def _analysis_metric_table(result: dict) -> list:
+    """分析证据表：保留平均值，同时给出中位数、范围和波动。"""
+    lines = ["| 指标 | 有效夜晚 | 平均值 | 中位数 | 最低 | 最高 | 首晚→末晚 | 走势 | 波动 |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    for _, key, _ in TREND_METRICS:
+        item = result["summaries"].get(key)
+        if not item or not item.get("count"):
+            continue
+        unit = item["unit"]
+        change_percent = item.get("change_percent")
+        percent = ("，%+.1f%%" % change_percent) if change_percent is not None else ""
+        lines.append(
+            "| " + item["label"] + " | " + str(item["count"])
+            + " | " + str(item["mean"]) + unit
+            + " | " + str(item["median"]) + unit
+            + " | " + str(item["minimum"]) + unit
+            + " | " + str(item["maximum"]) + unit
+            + " | " + str(item["first"]) + " → " + str(item["last"])
+            + "（" + item["direction"] + percent + "）"
+            + " | " + item["direction"]
+            + " | " + item["stability"]
+            + "（" + ("%.1f%%" % (item["volatility"] * 100)
+                       if item.get("volatility") is not None else "样本不足") + "） |"
+        )
+    return lines
+
+
+def _period_table(result: dict) -> list:
+    period = result["period"]
+    if not period.get("available"):
+        return ["- " + period.get("reason", "暂不做阶段对比")]
+    lines = [
+        "对比最近 " + str(period["recent_count"]) + " 晚（"
+        + str(period["recent_start"]) + " ~ " + str(period["recent_end"])
+        + "）与此前 " + str(period["prior_count"]) + " 晚（"
+        + str(period["prior_start"]) + " ~ " + str(period["prior_end"]) + "）。",
+        "",
+        "| 指标 | 前期平均 | 近期平均 | 变化 | 变化% |",
+        "|---|---|---|---|---|",
+    ]
+    for item in period["metrics"]:
+        unit = item["unit"]
+        percent = item.get("change_percent")
+        lines.append(
+            "| " + item["label"] + " | " + str(item["prior_mean"]) + unit
+            + " | " + str(item["recent_mean"]) + unit
+            + " | " + ("+" if (item.get("delta") or 0) > 0 else "")
+            + str(item["delta"]) + unit
+            + " | " + (("%+.1f%%" % percent) if percent is not None else "—")
+            + " |"
+        )
+    return lines
+
+
+def _comparison_table_lines(older: dict, newer: dict) -> list:
+    """两晚指标对照表，供综合分析和独立报告对比共用。"""
+    left = str(older.get("record_date", "未知"))
+    right = str(newer.get("record_date", "未知"))
+    lines = ["| 指标 | " + left + " | " + right + " | 变化 |",
+             "|---|---|---|---|"]
+    for label, key, unit in COMPARE_FIELDS:
+        lines.append("| " + label + " | " + _fmt_compare(older.get(key), unit)
+                     + " | " + _fmt_compare(newer.get(key), unit)
+                     + " | " + _diff_compare(older.get(key), newer.get(key), unit) + " |")
+    return lines
+
+
+def _analysis_text(night: nightdata.Night, question: str = "") -> str:
+    """综合分析：先给结论，再用对比和统计表提供可复核证据。"""
     facts = {item.fid: item.text for item in night.facts}
     date = str(night.raw.get("record_date", "未知"))
-    lines = ["单晚数据分析（" + date + "）", "", "【数据概览】"]
+    window_days = analysis.detect_window_days(question)
+    result = analysis.analyze(night, window_days)
+    quality = result["quality"]
+    title = (
+        "设备数据分析（请求最近 " + str(window_days) + " 天；当前 "
+        + str(quality["record_count"]) + " 个有记录夜晚，"
+        + str(quality["first_date"]) + " 至 " + str(quality["last_date"]) + "）"
+    )
+    lines = [title, "", "【先给结论】"]
+    lines += ["- " + item for item in result["conclusions"]]
+    lines += ["", "【数据概览】"]
     for fid in ("usage-time", "treat-score", "pressure-main",
                 "events-ahi", "leak-main", "leak-mask-seal"):
         if fid in facts:
@@ -290,43 +369,54 @@ def _analysis_text(night: nightdata.Night) -> str:
         lines += ["", "【主要发现】"]
         lines += ["- " + item for item in advice["positives"]]
         lines += ["- " + item for item in advice["issues"]]
-    if advice["actions"]:
-        lines += ["", "【建议】"]
-        lines += ["- " + item for item in advice["actions"]]
 
-    trend = nightdata.trend_summary(night.user_id, night)
     if night.history:
         previous = sorted(night.history,
                           key=lambda item: str(item.get("record_date")))[-1]
-        parts = []
-        for label, key, unit in (("使用时长", "treat_time_minutes", "分钟"),
-                                 ("AHI", "ahi", "次/小时"),
-                                 ("P95 漏气", "air_leakage_p95", "L/min")):
-            older, newer = previous.get(key), night.raw.get(key)
-            if older is not None and newer is not None:
-                parts.append(label + " " + str(older) + " → " + str(newer)
-                             + "（" + _diff_compare(older, newer, unit) + "）")
-        if parts:
-            lines += ["", "【与上一晚对比】", "- " + "；".join(parts)]
+        lines += ["", "【与上一晚对比】"]
+        lines += _comparison_table_lines(previous, night.raw)
+    else:
+        lines += ["", "【与上一晚对比】", "- 当前数据没有更早的夜晚，暂时无法对比。"]
 
-    if trend["nights"]:
-        averages = []
-        for label, key, unit in (("使用时长", "treat_time_minutes", "分钟"),
-                                 ("AHI", "ahi", "次/小时"),
-                                 ("P95 漏气", "air_leakage_p95", "L/min")):
-            values = [float(item[key]) for item in trend["nights"]
-                      if item.get(key) is not None]
-            if values:
-                averages.append(label + " " + str(round(sum(values) / len(values), 2)) + unit)
-        if averages:
-            lines += ["", "【最近 " + str(len(trend["nights"])) + " 晚平均】",
-                      "- " + "、".join(averages)]
+    lines += ["", "【阶段对比】"]
+    lines += _period_table(result)
 
-    if trend["has_history"]:
-        lines += ["", "【多晚趋势】",
-                  report.trend_sentence("respiratory-events", trend)]
+    lines += ["", "【窗口统计】"]
+    lines += _analysis_metric_table(result)
 
-    lines += ["", "【边界】单晚数据不能代表长期水平，不构成医疗诊断。"]
+    lines += ["", "【值得回看】"]
+    if result["outliers"]:
+        for item in result["outliers"]:
+            lines.append(
+                "- " + item["date"] + " 的" + item["label"] + "为 "
+                + str(item["value"]) + item["unit"] + "，相对该窗口常见范围有偏离。"
+            )
+    else:
+        lines.append("- 当前样本中未发现明显偏离窗口常见范围的单个夜晚。")
+
+    actions = list(advice["actions"])
+    if quality["observed_days"] < window_days:
+        actions.append(
+            "继续积累完整记录后再判断长期趋势，当前不把短期结果外推为 "
+            + str(window_days) + " 天结论"
+        )
+    if quality["gap_count"]:
+        actions.append("确认无记录日是否由未使用或数据未上传造成，补齐后再看阶段平均值")
+    if quality["fragment_count"]:
+        actions.append("核对碎片夜是否由分段使用或上传不完整造成")
+    if result["period"].get("available"):
+        leak = next((item for item in result["period"]["metrics"]
+                     if item["key"] == "air_leakage_p95"), None)
+        if leak and leak.get("change_percent") is not None \
+                and leak["change_percent"] >= 5:
+            actions.append("近期 P95 漏气均值上升，优先检查面罩贴合、头带和管路接口")
+    actions = list(dict.fromkeys(item for item in actions if item))
+    if actions:
+        lines += ["", "【建议】"]
+        lines += ["- " + item for item in actions]
+
+    lines += ["", "【边界】以上是设备记录的趋势和波动分析，不判断病情严重程度，"
+              "不构成医疗诊断，也不建议自行调整治疗参数。"]
     return "\n".join(lines)
 
 
@@ -366,16 +456,10 @@ def _wants_report_compare(question: str) -> bool:
 
 
 TREND_INTENT_TERMS = ("这几天", "最近几晚", "最近几天", "最近一周", "最近7天",
-                      "近7天", "趋势", "走势", "变化趋势", "有什么变化", "波动")
-TREND_METRICS = (
-    ("使用时长", "treat_time_minutes", "分钟"),
-    ("AHI", "ahi", "次/小时"),
-    ("平均治疗压力", "treat_pressure_avg", "hPa"),
-    ("P95 漏气", "air_leakage_p95", "L/min"),
-    ("平均潮气量", "tidal_volume_avg_ml", "mL"),
-    ("平均呼吸频率", "respiratory_rate_avg", "次/分钟"),
-    ("平均分钟通气量", "minute_ventilation_avg_lpm", "L/min"),
-)
+                      "近7天", "最近14天", "近两周", "最近30天", "近30天",
+                      "最近一个月", "近一个月", "一个月", "趋势", "走势",
+                      "变化趋势", "有什么变化", "波动")
+TREND_METRICS = analysis.METRICS
 
 
 def _wants_trend_summary(question: str) -> bool:
@@ -386,35 +470,28 @@ def _wants_trend_summary(question: str) -> bool:
     if any(term in question for term in TREND_INTENT_TERMS):
         return True
     return ("平均" in question
-            and any(term in question for term in ("最近", "这几", "几天", "一周", "7天")))
+            and any(term in question for term in
+                    ("最近", "这几", "几天", "一周", "7天", "14天", "30天", "一个月")))
 
 
-def _trend_summary_text(night: nightdata.Night) -> str:
-    trend = nightdata.trend_summary(night.user_id, night)
-    nights = trend["nights"]
-    if not nights:
+def _trend_summary_text(night: nightdata.Night, question: str = "") -> str:
+    window_days = analysis.detect_window_days(question, default=7)
+    result = analysis.analyze(night, window_days)
+    quality = result["quality"]
+    if not quality["record_count"]:
         return "这几晚没有可用于趋势比较的指标。"
-    first_date = str(nights[0].get("record_date", "?"))
-    last_date = str(nights[-1].get("record_date", "?"))
-    lines = ["最近 " + str(len(nights)) + " 个有记录夜晚（" + first_date
-             + " ~ " + last_date + "）", "",
-             "| 指标 | 平均值 | 最低 | 最高 | 首晚→末晚 | 走势 |",
-             "|---|---|---|---|---|---|"]
-    for label, key, unit in TREND_METRICS:
-        values = [(str(item.get("record_date", "")), float(item[key]))
-                  for item in nights if item.get(key) is not None]
-        if not values:
-            continue
-        nums = [value for _, value in values]
-        mean = round(sum(nums) / len(nums), 2)
-        change = round(nums[-1] - nums[0], 2)
-        direction = "上升" if change > 0.05 else "下降" if change < -0.05 else "平稳"
-        lines.append("| " + label + " | " + str(mean) + unit
-                     + " | " + str(round(min(nums), 2)) + unit
-                     + " | " + str(round(max(nums), 2)) + unit
-                     + " | " + str(round(nums[0], 2)) + " → " + str(round(nums[-1], 2))
-                     + "（" + ("+" if change > 0 else "") + str(change) + unit + "）"
-                     + " | " + direction + " |")
+    lines = [
+        "多晚数据分析（请求最近 " + str(window_days) + " 天；当前 "
+        + str(quality["record_count"]) + " 个有记录夜晚，"
+        + str(quality["first_date"]) + " 至 " + str(quality["last_date"]) + "）",
+        "",
+        "【先给结论】",
+    ]
+    lines += ["- " + item for item in result["conclusions"]]
+    lines += ["", "【阶段对比】"]
+    lines += _period_table(result)
+    lines += ["", "【窗口统计】"]
+    lines += _analysis_metric_table(result)
     lines += ["", "说明：趋势来自设备记录，单晚波动不代表因果，也不构成医疗诊断。"]
     return "\n".join(lines)
 
@@ -437,13 +514,8 @@ def _diff_compare(older, newer, unit=""):
 def _compare_text(older: dict, newer: dict) -> str:
     left = str(older.get("record_date", "未知"))
     right = str(newer.get("record_date", "未知"))
-    lines = ["报告对比：" + left + "（前一次） → " + right + "（上一次）", "",
-             "| 指标 | " + left + " | " + right + " | 变化 |",
-             "|---|---|---|---|"]
-    for label, key, unit in COMPARE_FIELDS:
-        lines.append("| " + label + " | " + _fmt_compare(older.get(key), unit)
-                     + " | " + _fmt_compare(newer.get(key), unit)
-                     + " | " + _diff_compare(older.get(key), newer.get(key), unit) + " |")
+    lines = ["报告对比：" + left + "（前一次） → " + right + "（上一次）", ""]
+    lines += _comparison_table_lines(older, newer)
     lines += ["", "说明：以上只是两晚设备记录的差异，单晚变化不能代表长期趋势，也不构成医疗诊断。"]
     return "\n".join(lines)
 
@@ -550,12 +622,23 @@ def resolve_pending_confirmation(question: str, history: list):
     return question, ""
 
 
-def _trend_text(night: nightdata.Night, decision: dict) -> str:
-    """跨晚趋势：复用报告模块的句式，保证问答与报告口径一致。"""
-    trend = nightdata.trend_summary(night.user_id, night)
+def _trend_text(night: nightdata.Night, decision: dict, question: str) -> str:
+    """跨晚单指标趋势：按用户要求的 7/14/30 天窗口计算。"""
     topics = decision.get("topics") or ["overall"]
-    topic = REPORT_TREND_TOPICS.get(topics[0], "pressure")
-    return report.trend_sentence(topic, trend)
+    key_map = {
+        "leakage": "air_leakage_p95",
+        "pressure": "treat_pressure_avg",
+        "events": "ahi",
+        "ahi": "ahi",
+        "breathing_overview": "minute_ventilation_avg_lpm",
+        "respiratory_rate": "respiratory_rate_avg",
+        "minute_ventilation": "minute_ventilation_avg_lpm",
+        "overall": "ahi",
+    }
+    key = key_map.get(topics[0], "ahi")
+    return analysis.metric_summary_text(
+        night, key, analysis.detect_window_days(question, default=7)
+    )
 
 
 def _is_metric_definition(question: str, knowledge_hits: list) -> bool:
@@ -624,17 +707,6 @@ TIME_REF_WORDS = ("昨晚", "昨天", "前天", "前晚", "大前天",
 TREND_REQUEST_TERMS = ("趋势", "走势", "最近几晚", "连续几晚", "这几天",
                        "最近7晚", "最近七晚", "近7晚", "近七晚",
                        "最近30晚", "最近30天")
-
-# 路由主题 -> 报告趋势句式使用的话题
-REPORT_TREND_TOPICS = {
-    "leakage": "leakage",
-    "pressure": "pressure",
-    "events": "respiratory-events",
-    "ahi": "respiratory-events",
-    "breathing_overview": "breathing-overview",
-    "respiratory_rate": "breathing-overview",
-    "minute_ventilation": "breathing-overview",
-}
 
 DEFINITION_TERMS = ("什么是", "是什么", "什么意思", "含义", "怎么理解", "指什么", "代表什么")
 PERSONAL_TERMS = ("我的", "我昨晚", "我最近", "我这", "昨晚", "昨天", "本晚", "当前", "今天")
@@ -927,11 +999,23 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                                or _asks_report_content(question)):
         # "主机能生成报告吗 / 报告显示哪些指标"是产品功能问题，交给下面的检索
         intent = "product_query"
+    # 综合分析是总入口：对比、平均、变化和趋势都要在同一份结果里出现。
+    # 带具体指标的“分析一下漏气”仍交给设备数据，避免扩大成整份报告。
+    if _wants_analysis(question) and not any(
+            term in question for term in ANALYSIS_METRIC_TERMS):
+        return emit(
+            _analysis_text(night, question),
+            "数据分析",
+            "综合分析：趋势结论 + 两晚对比 + 阶段对比 + 波动与偏离日",
+            sources=[item.fid for item in night.facts],
+            validation={"ok": True, "problems": []},
+            intent="analysis",
+        )
     if _wants_trend_summary(question):
         return emit(
-            _trend_summary_text(night),
+            _trend_summary_text(night, question),
             "趋势分析",
-            "最近多晚统计",
+            "多晚趋势结论 + 阶段对比 + 统计证据",
             sources=[key for _, key, _ in TREND_METRICS],
             validation={"ok": True, "problems": []},
             intent="trend_summary",
@@ -955,16 +1039,6 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             risk_flags=["missing_field"],
             intent="compare",
         )
-    if _wants_analysis(question) and not any(
-            term in question for term in ANALYSIS_METRIC_TERMS):
-        return emit(
-            _analysis_text(night),
-            "数据分析",
-            "基于本晚确定性事实",
-            sources=[item.fid for item in night.facts],
-            validation={"ok": True, "problems": []},
-            intent="analysis",
-        )
     if _wants_advice(question) and not any(
             term in question for term in ANALYSIS_METRIC_TERMS):
         return emit(
@@ -978,7 +1052,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
     if _wants_data_assessment(question):
         # 沿用入口层当前选定的夜晚（没有新时间词时不会重置到最近一晚）
         return emit(
-            _analysis_text(night),
+            _analysis_text(night, question),
             "数据分析",
             "按当前夜晚评估：" + str(night.raw.get("record_date", "未知")),
             sources=[item.fid for item in night.facts],
@@ -1032,7 +1106,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
     # 问「趋势」时要给跨晚对比，不然只回单晚数值，用户会以为趋势就是当晚
     trend_text = ""
     if _wants_trend(question) and (picked or has_time_ref):
-        trend_text = _trend_text(night, decision)
+        trend_text = _trend_text(night, decision, question)
 
     if "therapy_mode" in decision["topics"] and has_time_ref:
         actual_mode = night.raw.get("therapy_mode") or night.raw.get("mode")

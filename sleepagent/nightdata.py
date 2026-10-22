@@ -448,7 +448,14 @@ def resolve_night(user_id: str, nights: list, question: str,
         return NightSelection(None, "数据里没有 " + str(month) + " 月 " + str(day) + " 日的记录。",
                               "missing_date")
 
-    word, days = calendar_word(text)
+    # “和上一晚对比”里的“上一晚”是对比对象，不是本次分析的主日期。
+    # 否则“分析最近一周并和上一晚对比”会把主数据夜错选成前一晚，
+    # 导致同一句话里的“最近一周”和当前夜口径不一致。
+    selection_text = text
+    if any(term in text for term in ("对比", "相比", "比较", "比起来")):
+        selection_text = selection_text.replace("前一晚", "").replace("上一晚", "")
+
+    word, days = calendar_word(selection_text)
     if word:
         moment = today if isinstance(today, datetime.date) else datetime.date.today()
         if isinstance(moment, datetime.datetime):
@@ -460,7 +467,7 @@ def resolve_night(user_id: str, nights: list, question: str,
         # 系统日期说这是昨天，但数据里没有这一晚：问清楚，不拿最近一晚顶替
         return NightSelection(None, word + "（" + target_text + "）", "stale_relative")
 
-    offset = relative_offset(text)
+    offset = relative_offset(selection_text)
     if offset is not None:
         index = len(nights) - 1 - offset
         if index < 0:

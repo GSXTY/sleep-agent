@@ -55,7 +55,7 @@ python chat.py --report                     # 单晚治疗报告
 python -m unittest discover -s tests -v
 ```
 
-当前状态：347 项测试全部通过。
+当前状态：355 项测试全部通过。
 
 交付文档：
 
@@ -63,6 +63,7 @@ python -m unittest discover -s tests -v
 - [测试报告](docs/TEST_REPORT_V1.md)
 - [接口契约](docs/INTERFACE_CONTRACT_V1.md)
 - [产品资料维护规范](docs/DOC_AUTHORING_GUIDE.md)
+- [设备数据分析与对比](docs/ANALYSIS_MODES.md)
 - [Bad Case 诊断与回流](docs/BADCASE_WORKFLOW.md)
 - [App 内嵌 Demo 指南](docs/DEMO_GUIDE.md)
 - [后端数据对接 · 沟通版](docs/BACKEND_DATA_BRIEF.md)
@@ -122,6 +123,29 @@ python -m unittest discover -s tests -v
 
 相对日期的口径：「昨晚 / 昨天 / 前天 / 大前天」按**系统日期**换算，
 数据里没有那一晚就追问是不是最近一次使用；「前一天 / 上一晚」按**数据里最新一晚**换算。
+
+### 数据分析与对比
+
+`分析一下` 默认按最近 30 天做综合分析，数据不足时明确降级。它固定包含
+先给结论、本晚概览、两晚对比、近期/此前阶段对比、平均值/中位数/最低/最高、
+走势、波动、偏离日和建议。
+
+明确的两晚比较仍可直接问：
+
+```text
+上一次的报告和前一次相比
+2026-10-13 和 2026-10-15 对比
+```
+
+多晚变化和平均可直接问：
+
+```text
+这几天数据有什么变化
+最近一周的数据怎么样
+最近30天数据怎么样
+```
+
+详细分流规则见 [设备数据分析与对比](docs/ANALYSIS_MODES.md)。
 
 ---
 
@@ -212,7 +236,7 @@ python eval_retrieval.py --verbose    # 附未命中清单
 ```powershell
 python run_checks.py              # 单元测试 + 检索评估
 python run_checks.py --verbose    # 附检索未命中清单
-python eval_agent.py              # 端到端行为评测（61 条典型提问，规则版）
+python eval_agent.py              # 端到端行为评测（65 条典型提问，规则版）
 python eval_agent.py --llm        # 同上，真调大模型并检查校验闸门与耗时
 python eval_retrieval.py --diagnose   # 逐条诊断：召回、闸门还是排序问题
 python demo_server.py             # App 内嵌 Demo：http://127.0.0.1:8100
@@ -220,7 +244,7 @@ python demo_server.py             # App 内嵌 Demo：http://127.0.0.1:8100
 
 也可以直接双击项目根目录的 `demo.cmd`，窗口会打印本机和手机访问地址。
 
-当前：347 项测试通过，混合检索 R@1 100% / R@3 100%。
+当前：355 项测试通过，端到端规则评测 65/65；混合检索基线 R@1 100% / R@3 100%。
 
 `eval_agent.py` 从入口层模拟真实提问，按类别检查模式、关键数字和选项，
 用来发现"单测全绿但整机答错"的问题。`--llm` 会额外统计模型耗时并把

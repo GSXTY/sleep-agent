@@ -26,6 +26,13 @@ class TrendSummaryTest(unittest.TestCase):
         self.assertIn("设备数据", result.mode)
         self.assertNotEqual(result.mode, "趋势分析")
 
+    def test_period_comparison_uses_multi_night_summary(self):
+        result = pipeline.answer("对比一下最近几天的数据", self.night, [],
+                                 use_llm=False)
+        self.assertEqual(result.mode, "趋势分析")
+        self.assertIn("平均值", result.text)
+        self.assertIn("首晚→末晚", result.text)
+
     def test_comparison_is_not_trend_summary(self):
         result = pipeline.answer("上一次的报告和前一次相比", self.night, [], use_llm=False)
         self.assertEqual(result.mode, "报告对比")
