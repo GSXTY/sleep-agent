@@ -422,13 +422,20 @@ def resolve_night(user_id: str, nights: list, question: str,
 
     text = re.sub(r"\s+", "", question or "")
 
-    match = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
-    if match:
-        target = "%04d-%02d-%02d" % (int(match.group(1)), int(match.group(2)), int(match.group(3)))
-        for night in nights:
-            if str(night.raw.get("record_date")) == target:
-                return NightSelection(night, "按指定日期取 " + target, "resolved")
-        return NightSelection(None, "数据里没有 " + target + " 的记录。", "missing_date")
+    matches = re.findall(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
+    if matches:
+        targets = ["%04d-%02d-%02d" % (int(year), int(month), int(day))
+                   for year, month, day in matches]
+        found = [night for night in nights
+                 if str(night.raw.get("record_date")) in targets]
+        if found:
+            chosen = max(found, key=lambda item: str(item.raw.get("record_date")))
+            label = "按指定日期取 " + str(chosen.raw.get("record_date"))
+            if len(targets) > 1:
+                label += "（多日期查询，取较晚一晚）"
+            return NightSelection(chosen, label, "resolved")
+        return NightSelection(None, "数据里没有 " + "、".join(targets) + " 的记录。",
+                              "missing_date")
 
     match = re.search(r"(\d{1,2})月(\d{1,2})日?", text)
     if match:

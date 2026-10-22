@@ -317,6 +317,78 @@ def _wants_data_assessment(question: str) -> bool:
     return "数据" in question and any(term in question for term in ASSESSMENT_TERMS)
 
 
+COMPARE_TERMS = ("相比", "对比", "比较", "比上次", "比前一次", "比起来", "变化")
+COMPARE_CONTEXT = ("报告", "数据", "两晚", "两次", "上次", "上一次",
+                   "前一次", "前一晚")
+COMPARE_FIELDS = (
+    ("治疗时长", "treat_time_minutes", "分钟"),
+    ("设备评分", "treat_score", "分"),
+    ("AHI", "ahi", "次/小时"),
+    ("平均治疗压力", "treat_pressure_avg", "hPa"),
+    ("P95 治疗压力", "treat_pressure_p95", "hPa"),
+    ("平均漏气", "air_leakage_avg", "L/min"),
+    ("P95 漏气", "air_leakage_p95", "L/min"),
+    ("大漏气时长", "large_leak_minutes", "分钟"),
+)
+
+
+def _wants_report_compare(question: str) -> bool:
+    dates = re.findall(r"\d{4}-\d{1,2}-\d{1,2}", question)
+    return (any(term in question for term in COMPARE_TERMS)
+            and (any(term in question for term in COMPARE_CONTEXT) or len(dates) >= 2))
+
+
+def _fmt_compare(value, unit=""):
+    if value is None:
+        return "未提供"
+    if isinstance(value, float):
+        value = round(value, 2)
+    return str(value) + unit
+
+
+def _diff_compare(older, newer, unit=""):
+    if older is None or newer is None:
+        return "—"
+    diff = round(float(newer) - float(older), 2)
+    return ("+" if diff > 0 else "") + str(diff) + unit
+
+
+def _compare_text(older: dict, newer: dict) -> str:
+    left = str(older.get("record_date", "未知"))
+    right = str(newer.get("record_date", "未知"))
+    lines = ["报告对比：" + left + "（前一次） → " + right + "（上一次）", "",
+             "| 指标 | " + left + " | " + right + " | 变化 |",
+             "|---|---|---|---|"]
+    for label, key, unit in COMPARE_FIELDS:
+        lines.append("| " + label + " | " + _fmt_compare(older.get(key), unit)
+                     + " | " + _fmt_compare(newer.get(key), unit)
+                     + " | " + _diff_compare(older.get(key), newer.get(key), unit) + " |")
+    lines += ["", "说明：以上只是两晚设备记录的差异，单晚变化不能代表长期趋势，也不构成医疗诊断。"]
+    return "\n".join(lines)
+
+
+def _compare_pair(night: nightdata.Night, question: str):
+    raws = list(night.history) + [night.raw]
+    dates = re.findall(r"\d{4}-\d{1,2}-\d{1,2}", question)
+    if len(dates) >= 2:
+        picked = []
+        for target in dates[:2]:
+            parts = [str(int(item)) for item in target.split("-")]
+            target = "-".join([parts[0], parts[1].zfill(2), parts[2].zfill(2)])
+            for raw in raws:
+                if str(raw.get("record_date")) == target:
+                    picked.append(raw)
+                    break
+        if len(picked) == 2:
+            picked.sort(key=lambda item: str(item.get("record_date")))
+            return picked[0], picked[1]
+    history = [raw for raw in night.history if raw.get("record_date")]
+    if history:
+        history.sort(key=lambda item: str(item.get("record_date")))
+        return history[-1], night.raw
+    return None
+
+
 def _prefer_scope(hits: list, scope) -> list:
     """意图子库只做软排序：分数接近第一名时才提前，避免硬过滤漏内容。"""
     if not hits or not scope:
@@ -774,6 +846,25 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                                or _asks_report_content(question)):
         # "主机能生成报告吗 / 报告显示哪些指标"是产品功能问题，交给下面的检索
         intent = "product_query"
+    if _wants_report_compare(question):
+        pair = _compare_pair(night, question)
+        if pair:
+            return emit(
+                _compare_text(pair[0], pair[1]),
+                "报告对比",
+                "两晚指标对比",
+                sources=[key for _, key, _ in COMPARE_FIELDS],
+                validation={"ok": True, "problems": []},
+                intent="compare",
+            )
+        return emit(
+            "当前只有这一晚的记录，没有前一晚可以对比。",
+            "报告对比（数据不足）",
+            "缺少可对比的夜晚",
+            validation={"ok": True, "problems": []},
+            risk_flags=["missing_field"],
+            intent="compare",
+        )
     if _wants_analysis(question) and not any(
             term in question for term in ANALYSIS_METRIC_TERMS):
         return emit(
