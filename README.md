@@ -59,6 +59,22 @@ python -m unittest discover -s tests -v
 
 当前状态：421 项测试全部通过。
 
+### FastAPI 并行入口（可选）
+
+新增的 ASGI 入口不替换现有 Demo，默认使用 8101 与 8100 并行测试：
+
+```powershell
+python -m pip install -r requirements-async.txt
+python -m uvicorn api_server:app --host 0.0.0.0 --port 8101
+```
+
+FastAPI 入口包含异步会话锁、全局并发上限、SSE 心跳和客户端断开处理。
+现有同步 Agent 管线暂通过 `asyncio.to_thread()` 调用；DeepSeek 和后台接口
+后续再迁移到异步 `httpx`。
+
+未安装 FastAPI 依赖时，新增的 3 项 API 测试会自动跳过，不影响现有 421 项测试。
+详细步骤见 [FastAPI 异步迁移](docs/FASTAPI_MIGRATION.md)。
+
 ### 配置与安全
 
 复制示例配置后再填写本地凭据：
@@ -104,6 +120,8 @@ Copy-Item config.example.json config.json
 - [YA70 日期区间接口测试](docs/YA70_API_TEST.md)
 - [Agent 数据源接入](docs/DATA_SOURCE.md)
 - [大模型成本控制](docs/COST_CONTROL.md)
+- [并发控制与 SSE](docs/CONCURRENCY_SSE.md)
+- [FastAPI 异步迁移](docs/FASTAPI_MIGRATION.md)
 - [Bad Case 诊断与回流](docs/BADCASE_WORKFLOW.md)
 - [App 内嵌 Demo 指南](docs/DEMO_GUIDE.md)
 - [后端数据对接 · 沟通版](docs/BACKEND_DATA_BRIEF.md)
