@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import queue
 import socket
 import sys
+import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,14 +35,25 @@ MAX_HISTORY = 20
 _sessions = {}
 _session_nights = {}
 _datasets = {}
+_session_locks = {}
+_dataset_locks = {}
+_locks_guard = threading.Lock()
+
+
+def keyed_lock(mapping: dict, key):
+    """为单个会话或用户返回稳定的锁，避免全局串行化。"""
+    with _locks_guard:
+        return mapping.setdefault(key, threading.RLock())
 
 
 def nights(user_id: str):
-    if user_id not in _datasets:
-        _datasets[user_id] = data_source.load_nights(
-            user_id=user_id, source=DATA_SOURCE or None
-        )
-    return _datasets[user_id]
+    lock = keyed_lock(_dataset_locks, user_id)
+    with lock:
+        if user_id not in _datasets:
+            _datasets[user_id] = data_source.load_nights(
+                user_id=user_id, source=DATA_SOURCE or None
+            )
+        return _datasets[user_id]
 
 
 def public_detail(result) -> str:
@@ -59,6 +72,13 @@ def public_detail(result) -> str:
 def chat(message: str, session_id: str, use_llm: bool = True,
          user_id: str | None = None):
     user_id = str(user_id or USER_ID)
+    lock = keyed_lock(_session_locks, (user_id, session_id))
+    with lock:
+        return _chat_locked(message, session_id, use_llm, user_id)
+
+
+def _chat_locked(message: str, session_id: str, use_llm: bool,
+                 user_id: str):
     data = nights(user_id)
     session_key = (user_id, session_id)
     history = _sessions.setdefault(session_key, [])
@@ -114,6 +134,7 @@ def save_feedback(body: dict) -> None:
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "SleepAgentDemo/0.1"
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
@@ -129,6 +150,27 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, status: int, payload: dict):
         self._send(status, json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                    "application/json; charset=utf-8")
+
+    def _sse_start(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("Connection", "close")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+        self.close_connection = True
+
+    def _sse_write(self, event: str, data: dict):
+        payload = (
+            "event: " + event + "\n"
+            + "data: " + json.dumps(data, ensure_ascii=False) + "\n\n"
+        ).encode("utf-8")
+        self.wfile.write(payload)
+        self.wfile.flush()
+
+    def _sse_heartbeat(self):
+        self.wfile.write(b": keep-alive\n\n")
+        self.wfile.flush()
 
     def _body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
@@ -150,6 +192,7 @@ class Handler(BaseHTTPRequestHandler):
                 "sessions": len(_sessions),
                 "data_source": DATA_SOURCE or "configured",
                 "default_user_id": USER_ID,
+                "streaming": True,
             })
             return
         self._json(404, {"code": 404, "message": "not found", "data": None})
@@ -173,11 +216,61 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json(200, {"code": 0, "message": "ok", "data": data})
             return
+        if self.path == "/api/chat/stream":
+            message = str(body.get("message") or "").strip()
+            if not message:
+                self._json(400, {"code": 400, "message": "缺少 message", "data": None})
+                return
+            session_id = str(body.get("session_id") or uuid.uuid4().hex[:16])
+            user_id = str(body.get("user_id") or USER_ID)
+            self._stream_chat(
+                message, session_id, bool(body.get("use_llm", True)), user_id
+            )
+            return
         if self.path == "/api/feedback":
             save_feedback(body)
             self._json(200, {"code": 0, "message": "ok", "data": None})
             return
         self._json(404, {"code": 404, "message": "not found", "data": None})
+
+    def _stream_chat(self, message: str, session_id: str, use_llm: bool,
+                     user_id: str):
+        """SSE 推送处理状态和通过校验后的最终回答，不直接推送模型原文。"""
+        events = queue.Queue()
+
+        def worker():
+            try:
+                events.put(("status", {
+                    "stage": "processing",
+                    "text": "正在检索资料并分析数据…",
+                }))
+                data = chat(
+                    message, session_id, use_llm, user_id=user_id
+                )
+                events.put(("message", data))
+                events.put(("done", {
+                    "request_id": data.get("request_id", ""),
+                }))
+            except Exception:
+                events.put(("error", {
+                    "message": "服务暂时不可用，请稍后再试。",
+                }))
+
+        self._sse_start()
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        try:
+            while True:
+                try:
+                    event, payload = events.get(timeout=15)
+                except queue.Empty:
+                    self._sse_heartbeat()
+                    continue
+                self._sse_write(event, payload)
+                if event in ("done", "error"):
+                    break
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
 
 def make_server(host="127.0.0.1", port=8100):

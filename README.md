@@ -57,7 +57,7 @@ python chat.py --report                     # 单晚治疗报告
 python -m unittest discover -s tests -v
 ```
 
-当前状态：416 项测试全部通过。
+当前状态：421 项测试全部通过。
 
 ### 配置与安全
 
@@ -85,8 +85,11 @@ Copy-Item config.example.json config.json
 - 产品问题默认不携带无关历史，设备数据最多 3 轮，通用对话最多 4 轮；
 - 产品检索最多发送 4 个候选切片，并按场景限制输出 token；
 - 日志记录 `Tokens:输入/输出` 和 `CACHE_HIT`，便于核算成本。
+- 同一会话使用独立锁串行处理，模型调用默认最多 8 个并发；
+- `/api/chat/stream` 使用 SSE 推送处理状态和安全校验后的最终答案。
 
-完整策略见 [大模型成本控制](docs/COST_CONTROL.md)。
+完整策略见 [大模型成本控制](docs/COST_CONTROL.md) 和
+[并发控制与 SSE](docs/CONCURRENCY_SSE.md)。
 
 交付文档：
 
@@ -304,7 +307,7 @@ python demo_server.py             # App 内嵌 Demo：http://127.0.0.1:8100
 
 也可以直接双击项目根目录的 `demo.cmd`，窗口会打印本机和手机访问地址。
 
-当前：416 项测试通过，端到端规则评测 79/79；混合检索基线 R@1 100% / R@3 100%。
+当前：421 项测试通过，端到端规则评测 79/79；混合检索基线 R@1 100% / R@3 100%。
 
 `eval_agent.py` 从入口层模拟真实提问，按类别检查模式、关键数字和选项，
 用来发现"单测全绿但整机答错"的问题。`--llm` 会额外统计模型耗时并把

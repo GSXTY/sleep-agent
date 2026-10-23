@@ -32,6 +32,9 @@ class DemoServerTest(unittest.TestCase):
     def setUp(self):
         demo_server._sessions.clear()
         demo_server._session_nights.clear()
+        demo_server._session_locks.clear()
+        demo_server._datasets.clear()
+        demo_server._dataset_locks.clear()
 
     def _url(self, path):
         return "http://127.0.0.1:" + str(self.port) + path
@@ -45,6 +48,16 @@ class DemoServerTest(unittest.TestCase):
         )
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def _post_raw(self, path, payload):
+        request = urllib.request.Request(
+            self._url(path),
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, response.headers, response.read().decode("utf-8")
 
     def _get(self, path):
         with urllib.request.urlopen(self._url(path), timeout=10) as response:
@@ -60,6 +73,8 @@ class DemoServerTest(unittest.TestCase):
         self.assertIn("stripInlineSources", body)
         self.assertIn("isNearBottomElement", body)
         self.assertIn("scrollMessageToStart", body)
+        self.assertIn("consumeChatStream", body)
+        self.assertIn("/api/chat/stream", body)
         self.assertIn("YA70工作原理是什么？", body)
         self.assertIn("有什么工作模式？", body)
         self.assertIn("帮我生成一份报告", body)
@@ -74,6 +89,27 @@ class DemoServerTest(unittest.TestCase):
         status, body = self._get("/api/health")
         self.assertEqual(status, 200)
         self.assertIn('"ok"', body)
+        self.assertIn('"streaming":true', body.replace(" ", ""))
+
+    def test_same_session_lock_is_stable(self):
+        first = demo_server.keyed_lock(demo_server._session_locks, ("10001", "s1"))
+        second = demo_server.keyed_lock(demo_server._session_locks, ("10001", "s1"))
+        other = demo_server.keyed_lock(demo_server._session_locks, ("10001", "s2"))
+        self.assertIs(first, second)
+        self.assertIsNot(first, other)
+
+    def test_stream_chat_returns_safe_sse_events(self):
+        status, headers, body = self._post_raw("/api/chat/stream", {
+            "message": "什么是 AHI",
+            "use_llm": False,
+            "session_id": "stream-" + uuid.uuid4().hex[:8],
+        })
+        self.assertEqual(status, 200)
+        self.assertIn("text/event-stream", headers.get("Content-Type", ""))
+        self.assertIn("event: status", body)
+        self.assertIn("event: message", body)
+        self.assertIn("event: done", body)
+        self.assertNotIn("模型调用失败", body)
 
     def test_internal_model_error_is_not_exposed(self):
         result = SimpleNamespace(

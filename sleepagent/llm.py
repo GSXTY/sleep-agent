@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -22,6 +23,9 @@ OLLAMA_DEFAULT_MODEL = "qwen3:1.7b"
 OPENAI_DEFAULT_URL = "https://api.openai.com/v1"
 
 DEFAULT_TIMEOUT = 60.0
+MAX_CONCURRENCY = max(1, int(os.getenv("LLM_MAX_CONCURRENCY", "8")))
+QUEUE_TIMEOUT = max(0.1, float(os.getenv("LLM_QUEUE_TIMEOUT_SECONDS", "15")))
+_chat_slots = threading.BoundedSemaphore(MAX_CONCURRENCY)
 
 
 def _config() -> dict:
@@ -188,6 +192,26 @@ def _open_request(request, timeout: float):
 
 
 def chat(messages: list, *, temperature: float = 0.2, max_tokens: int = 400) -> dict:
+    """带进程内并发上限的聊天入口。"""
+    if not _chat_slots.acquire(timeout=QUEUE_TIMEOUT):
+        return {
+            "status": "busy",
+            "content": "",
+            "model": settings()["model"],
+            "provider": settings()["provider"],
+            "detail": "模型并发已满，请稍后重试",
+            "usage": {},
+        }
+    try:
+        return _chat_unlocked(
+            messages, temperature=temperature, max_tokens=max_tokens
+        )
+    finally:
+        _chat_slots.release()
+
+
+def _chat_unlocked(messages: list, *, temperature: float = 0.2,
+                   max_tokens: int = 400) -> dict:
     """返回 {status, content, model, provider, detail}。status 非 success 时由调用方回退。"""
     cfg = settings()
     if cfg["provider"] == "openai":

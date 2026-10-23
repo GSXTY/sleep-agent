@@ -946,6 +946,33 @@ def _knowledge_definition_answer(item: dict) -> str:
     return " ".join(part for part in parts if part)
 
 
+def _split_compound_product_question(question: str) -> list:
+    """拆分一个输入里的多个独立产品问题，最多处理 3 项。"""
+    text = str(question or "").strip()
+    text = re.sub(r"(顺便问一下|另外|还有|以及)", "，", text)
+    raw_parts = re.split(r"[，,；;？?]\s*", text)
+    parts = []
+    for part in raw_parts:
+        value = part.strip().strip("。.!！ ")
+        if len(value) >= 3 and value not in parts:
+            parts.append(value)
+    return parts if 2 <= len(parts) <= 3 else []
+
+
+def _compound_product_groups(question: str) -> list:
+    groups = []
+    for clause in _split_compound_product_question(question):
+        service = service_intent.detect(clause)
+        preferred = service["scope"] if service["confidence"] >= 0.7 else None
+        hits = product_kb.retrieve(clause, top_k=4)
+        hits = _prefer_scope(hits, preferred)
+        hits = product_kb.trim_low_relevance(hits, question=clause)
+        if not hits:
+            return []
+        groups.append((clause, hits[:2]))
+    return groups
+
+
 def _asks_product_modes(question: str) -> bool:
     """问产品有哪些模式（设备功能），而不是本晚用了什么模式。"""
     if "模式" not in question or _has_time_ref(question):
@@ -1420,6 +1447,99 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                 "CACHE_HIT",
             )
             return AgentResponse(**cached)
+
+    compound_groups = []
+    if (not _has_time_ref(question)
+            and not _is_generic_report_request(question)
+            and not _is_generic_analysis_request(question)
+            and not _is_situation_request(question)):
+        compound_groups = _compound_product_groups(question)
+    if compound_groups:
+        material_lines = []
+        source_hits = []
+        for index, (clause, hits) in enumerate(compound_groups, 1):
+            material_lines.append("【子问题" + str(index) + "】" + clause)
+            material_lines.append(product_kb.render(hits))
+            source_hits.extend(hits)
+        material = "\n\n".join(material_lines)
+        fallback_reason = ""
+        fallback_validation = {"ok": None, "problems": []}
+        fallback_flags = ["llm_disabled"]
+        fallback_marker = ""
+        if use_llm:
+            system = (
+                PRODUCT_PROMPT
+                + "\n\n用户本轮包含多个独立问题。必须按【子问题】顺序逐项回答，"
+                  "不能只回答第一个；资料未覆盖的子问题要明确说明。"
+            )
+            messages = [{"role": "system", "content": system}]
+            context_turns = 2 if _needs_history(question) else 0
+            messages.extend(_context_messages(history, max_turns=context_turns))
+            messages.append({
+                "role": "user",
+                "content": SYS + "【产品资料】\n" + material
+                           + "\n\n【用户问题】\n" + question + "\n\n请逐项回答。",
+            })
+            result = llm.chat(messages, max_tokens=360)
+            llm_usage = result.get("usage") or {}
+            if result["status"] == "success":
+                check = validation.check_output(
+                    result["content"], material, mode="medium",
+                    question=question,
+                    extra_numbers=product_kb.section_numbers(),
+                )
+                if check["ok"]:
+                    return emit(
+                        result["content"],
+                        "产品文档（" + result["provider"] + " / "
+                        + result["model"] + "，已校验）",
+                        "复合问题：" + str(len(compound_groups)) + " 项",
+                        sources=[
+                            _source_label(hit) for hit in source_hits
+                        ],
+                        validation=check,
+                        intent="compound_product",
+                        recall=len(source_hits),
+                        model_used=True,
+                    )
+                logger.warning(
+                    "validation_failed problems=%s", "；".join(check["problems"])
+                )
+                dump_rejected(result["content"], check["problems"])
+                fallback_reason = (
+                    "模型输出未通过校验，已回退：" + "；".join(check["problems"])
+                )
+                fallback_validation = check
+                fallback_flags = ["validation_failed"]
+                fallback_marker = "VALIDATION_FAIL"
+            else:
+                fallback_reason = (
+                    "模型调用失败（" + result["status"] + "）：" + result["detail"]
+                )
+                fallback_validation = {
+                    "ok": None,
+                    "problems": [fallback_reason],
+                }
+                fallback_flags = ["llm_error"]
+                fallback_marker = "DEGRADE"
+
+        lines = []
+        for clause, hits in compound_groups:
+            lines.append("【" + clause + "】")
+            lines.append(_plain_markdown(_excerpt(hits[0]["text"], 600)))
+            lines.append("")
+        return emit(
+            "\n".join(lines).strip(),
+            "产品文档（规则版）",
+            fallback_reason or "未启用大模型",
+            sources=[_source_label(hit) for hit in source_hits],
+            validation=fallback_validation,
+            risk_flags=fallback_flags,
+            intent="compound_product",
+            recall=len(source_hits),
+            model_used=bool(use_llm),
+            marker=fallback_marker,
+        )
 
     scope = _explicit_report_scope(question)
     report_request = _is_generic_report_request(question)

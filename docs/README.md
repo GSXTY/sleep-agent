@@ -16,6 +16,7 @@
 | [APP_REPORT_INSIGHTS.md](APP_REPORT_INSIGHTS.md) | App 报告五板块结构化解读接口 |
 | [QUERY_PLANNING.md](QUERY_PLANNING.md) | 规则优先、低置信度才调用 LLM 的查询规划层 |
 | [COST_CONTROL.md](COST_CONTROL.md) | 公共问答缓存、上下文预算、token 预算与日志 |
+| [CONCURRENCY_SSE.md](CONCURRENCY_SSE.md) | 会话锁、模型并发上限、SSE 事件和安全流式策略 |
 | [BACKEND_DATA_BRIEF.md](BACKEND_DATA_BRIEF.md) | 后端沟通版：一个接口、字段清单、三条硬规则、8 个确认项 |
 | [BACKEND_DATA_API_V1.md](BACKEND_DATA_API_V1.md) | 后端数据接口需求、字段契约、缺失语义、错误降级与对账清单 |
 

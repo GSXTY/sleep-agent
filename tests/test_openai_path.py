@@ -128,6 +128,14 @@ class TestOpenAICompatiblePath(unittest.TestCase):
             self.assertIs(llm._open_request(request, timeout=1), response)
         build_opener.assert_called_once()
 
+    def test_model_busy_is_returned_when_concurrency_slots_full(self):
+        from sleepagent import llm
+        with mock.patch.object(llm, "_chat_slots") as slots:
+            slots.acquire.return_value = False
+            result = llm.chat([{"role": "user", "content": "问"}])
+        self.assertEqual(result["status"], "busy")
+        self.assertIn("并发已满", result["detail"])
+
     def test_bad_key_gives_readable_message(self):
         from sleepagent import llm
         os.environ["LLM_API_KEY"] = "wrong-key"
