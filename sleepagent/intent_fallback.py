@@ -31,7 +31,9 @@ product_docs、device_data、metric_explain、general、clarify、out_of_scope�
 - metric_explain：指标或术语的含义，不是用户个人数值
 - general：一般常识、计算、写作、闲聊
 - clarify：信息不足，不能判断用户具体想做什么
-- out_of_scope：与睡眠呼吸、产品和健康无关的请求
+- out_of_scope：仅当用户明确要求超出助手能力的实际操作，且不能通过文字协助完成
+- 写作、翻译、计算、编程、比较和推荐等可用文字完成的日常任务都属于 general，不能因与产品无关而拒答
+- 识别用户当前真正要完成的任务；不要仅凭“多少、变化、比较”等词判断为 device_data
 
 返回格式：
 {"intent":"product_docs","confidence":0.86}
@@ -44,6 +46,8 @@ def _parse(content: str):
         return None
     try:
         payload = json.loads(match.group(0))
+        if not isinstance(payload, dict):
+            return None
         intent = str(payload.get("intent", "")).strip()
         confidence = float(payload.get("confidence", 0))
     except (ValueError, TypeError, json.JSONDecodeError):
@@ -64,6 +68,7 @@ def classify(question: str):
         ],
         temperature=0,
         max_tokens=80,
+        timeout_seconds=4.0,
     )
     if result.get("status") != "success":
         return None

@@ -26,6 +26,18 @@ class ServiceIntentTest(unittest.TestCase):
         result = service_intent.detect("这个东西怎么弄")
         self.assertIsNone(result["scope"])
 
+    def test_product_tasks_with_assessment_do_not_become_data(self):
+        for question, expected in (
+            ("面罩清洗后有味道正常吗", "consumables"),
+            ("水箱漏水正常吗", "troubleshooting"),
+            ("蓝牙连不上有什么建议", "troubleshooting"),
+        ):
+            with self.subTest(question=question):
+                result = service_intent.detect(question)
+                self.assertNotEqual(result["intent"], "data")
+                if result["intent"] != "unknown":
+                    self.assertEqual(result["intent"], expected)
+
     def test_model_selection_includes_faq(self):
         result = service_intent.detect("如何选择型号")
         self.assertEqual(result["intent"], "product_overview")

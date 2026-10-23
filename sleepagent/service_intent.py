@@ -54,7 +54,14 @@ def _score(question: str, intent: dict):
 def detect(question: str) -> dict:
     """返回 {intent, scope, confidence, hits}。"""
     text = (question or "").lower()
-    if any(term in text for term in DATA_TERMS):
+    explicit_data = any(term in text for term in (
+        "我的数据", "治疗数据", "昨晚", "最近几晚", "上一次",
+    ))
+    product_task = any(term in text for term in (
+        "清洗", "清洁", "安装", "更换", "保修", "售后", "报错", "故障",
+        "漏水", "无法开机", "开不了机", "连不上", "配对",
+    ))
+    if explicit_data or (not product_task and any(term in text for term in DATA_TERMS)):
         return {"intent": "data", "scope": None, "confidence": 0.9, "hits": []}
 
     ranked = []

@@ -66,7 +66,9 @@ class DemoServerTest(unittest.TestCase):
     def test_index_page(self):
         status, body = self._get("/")
         self.assertEqual(status, 200)
-        self.assertIn("睡眠呼吸助手", body)
+        self.assertIn("YZF智能助手", body)
+        self.assertIn("--brand: #21dfb5", body)
+        self.assertIn("YZFTOOLS AI ASSISTANT", body)
         self.assertIn("renderMarkdown", body)
         self.assertIn("polishReportText", body)
         self.assertIn("stripInternalValidation", body)
@@ -75,6 +77,9 @@ class DemoServerTest(unittest.TestCase):
         self.assertIn("scrollMessageToStart", body)
         self.assertIn("consumeChatStream", body)
         self.assertIn("/api/chat/stream", body)
+        self.assertIn("visualViewport", body)
+        self.assertIn('enterkeyhint="send"', body)
+        self.assertIn('id="composer"', body)
         self.assertIn("YA70工作原理是什么？", body)
         self.assertIn("有什么工作模式？", body)
         self.assertIn("帮我生成一份报告", body)
@@ -126,6 +131,18 @@ class DemoServerTest(unittest.TestCase):
         self.assertEqual(payload["code"], 0)
         self.assertIn("AHI", payload["data"]["text"])
         self.assertTrue(payload["data"]["session_id"])
+
+    def test_greeting_returns_clickable_candidates(self):
+        payload = self._post("/api/chat", {
+            "message": "你好",
+            "use_llm": False,
+            "session_id": "hello-" + uuid.uuid4().hex[:8],
+        })
+        candidates = payload["data"]["candidates"]
+        self.assertGreaterEqual(len(candidates), 4)
+        values = {item["value"] for item in candidates}
+        self.assertIn("什么是 AHI", values)
+        self.assertIn("滤芯多久换一次", values)
 
     def test_multi_turn_confirmation(self):
         session = "turn-" + uuid.uuid4().hex[:8]

@@ -3,81 +3,165 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>睡眠呼吸助手（演示版）</title>
+<title>YZF智能助手</title>
 <style>
   :root {
-    --bg: #f4f6f8;
-    --card: #ffffff;
-    --text: #1d2430;
-    --muted: #6b7685;
-    --brand: #1f6feb;
-    --brand-soft: #e8f0fe;
-    --border: #e3e8ef;
-    --warn: #fff7e6;
-    --warn-border: #ffd591;
+    --bg: #061522;
+    --bg-deep: #081d2b;
+    --card: rgba(12, 34, 48, .92);
+    --card-solid: #0d2433;
+    --card-raised: #112b3b;
+    --text: #f2f8fa;
+    --muted: #91a7b6;
+    --brand: #21dfb5;
+    --brand-strong: #18c9a4;
+    --brand-soft: rgba(33, 223, 181, .12);
+    --border: rgba(142, 194, 209, .17);
+    --border-strong: rgba(33, 223, 181, .32);
+    --warn: rgba(255, 180, 70, .12);
+    --warn-border: rgba(255, 180, 70, .35);
+    --shadow: 0 18px 46px rgba(0, 0, 0, .26);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
-  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  html {
+    -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+    background: #04111b;
+  }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
+    margin: 0; color: var(--text);
+    background:
+      radial-gradient(circle at 92% 5%, rgba(23, 201, 164, .16), transparent 30%),
+      radial-gradient(circle at 0% 42%, rgba(37, 104, 145, .14), transparent 34%),
+      linear-gradient(160deg, #071a28 0%, var(--bg) 50%, #05131f 100%);
+    position: fixed;
+    top: var(--app-top, 0);
+    left: 0;
+    right: 0;
+    width: 100%;
+    height: var(--app-height, 100dvh);
     font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI",
           "PingFang SC", "Microsoft YaHei", sans-serif;
     display: flex; flex-direction: column;
+    overflow: hidden;
   }
   header {
-    background: var(--card); border-bottom: 1px solid var(--border);
-    padding: 12px 16px; display: flex; align-items: center; gap: 10px;
-    position: sticky; top: 0; z-index: 5;
+    background: rgba(6, 21, 34, .82);
+    backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    border-bottom: 1px solid rgba(142, 194, 209, .12);
+    padding: 13px 16px; display: flex; align-items: center; gap: 11px;
+    z-index: 5; flex: 0 0 auto;
   }
-  header .dot { width: 9px; height: 9px; border-radius: 50%; background: #34a853; }
-  header b { font-size: 16px; }
+  header .brand-mark {
+    width: 38px; height: 38px; flex: 0 0 38px; border-radius: 13px;
+    display: grid; place-items: center;
+    color: #03251f;
+    background: linear-gradient(145deg, #3bf0ca, #10b995);
+    box-shadow: 0 8px 24px rgba(33, 223, 181, .2);
+  }
+  header .brand-copy { display: flex; flex-direction: column; min-width: 0; }
+  header b { font-size: 16px; line-height: 1.35; }
+  header .subtitle {
+    color: var(--muted); font-size: 10.5px; letter-spacing: .08em;
+    text-transform: uppercase; line-height: 1.4;
+  }
   header .tag {
-    margin-left: auto; font-size: 12px; color: #ad6800;
-    background: var(--warn); border: 1px solid var(--warn-border);
-    padding: 2px 8px; border-radius: 999px;
+    margin-left: auto; font-size: 10px; color: var(--brand);
+    background: var(--brand-soft); border: 1px solid var(--border-strong);
+    padding: 4px 9px; border-radius: 999px; letter-spacing: .08em;
   }
-  #chat { flex: 1; overflow-y: auto; padding: 16px 14px 8px; }
-  .msg { display: flex; margin-bottom: 14px; }
+  #chat {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    padding: 16px 14px 4px;
+  }
+  .msg { display: flex; margin-bottom: 16px; }
   .msg .bubble {
-    max-width: 88%; padding: 10px 13px; border-radius: 14px;
+    max-width: 88%; padding: 11px 14px; border-radius: 18px;
     white-space: normal; word-break: break-word;
   }
   .assistant .bubble {
     background: var(--card); border: 1px solid var(--border);
-    border-top-left-radius: 4px;
-    max-width: 96%;
+    border-top-left-radius: 7px; max-width: 96%;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .12);
   }
   .user { justify-content: flex-end; }
   .user .bubble {
-    background: var(--brand); color: #fff; border-top-right-radius: 4px;
+    background: linear-gradient(145deg, #3af1c9, #12bd9b);
+    color: #03251f; border-top-right-radius: 7px;
+    box-shadow: 0 10px 26px rgba(15, 192, 157, .16);
   }
-  .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .meta { color: var(--muted); font-size: 11px; margin-top: 8px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .chip {
-    border: 1px solid #bcd2ff; background: var(--brand-soft); color: #174ea6;
-    padding: 7px 11px; border-radius: 999px; font-size: 13px; cursor: pointer;
+    border: 1px solid var(--border-strong); background: var(--brand-soft);
+    color: var(--brand); padding: 8px 12px; border-radius: 999px;
+    font-size: 13px; cursor: pointer;
   }
   .chip:active { transform: scale(.98); }
-  .suggest { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px 0; }
-  .suggest button {
-    background: #fff; border: 1px dashed #c8d3e0; color: #34445a;
-    padding: 7px 11px; border-radius: 10px; font-size: 13px; cursor: pointer;
+  .welcome {
+    padding: 10px 2px 20px;
   }
-  .cards { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin: 8px 0; }
+  .welcome-kicker {
+    color: var(--brand); font-size: 11px; font-weight: 700;
+    letter-spacing: .14em; margin-bottom: 8px;
+  }
+  .welcome h1 {
+    margin: 0; font-size: 27px; line-height: 1.32; letter-spacing: -.02em;
+    font-weight: 650;
+  }
+  .welcome h1 span { color: var(--brand); }
+  .welcome p {
+    color: var(--muted); margin: 9px 0 0; max-width: 340px;
+    font-size: 14px;
+  }
+  .welcome-note {
+    display: flex; align-items: center; gap: 8px; margin-top: 14px;
+    padding: 9px 11px; border-radius: 12px;
+    color: #9fb3bf; font-size: 11.5px;
+    background: rgba(33, 223, 181, .065);
+    border: 1px solid rgba(33, 223, 181, .14);
+  }
+  .welcome-note svg { color: var(--brand); flex: 0 0 auto; }
+  .suggest {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px; margin: 18px 0 18px;
+  }
+  .suggest button {
+    min-height: 96px; padding: 13px 12px; text-align: left;
+    display: flex; flex-direction: column; justify-content: space-between;
+    background: linear-gradient(155deg, rgba(18, 46, 62, .95), rgba(9, 30, 44, .95));
+    border: 1px solid var(--border); color: var(--text);
+    border-radius: 17px; font-size: 13px; cursor: pointer;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .14);
+  }
+  .suggest button:active {
+    transform: scale(.985); border-color: var(--border-strong);
+  }
+  .suggest-icon {
+    width: 30px; height: 30px; border-radius: 10px;
+    display: grid; place-items: center; color: var(--brand);
+    background: var(--brand-soft); margin-bottom: 9px;
+  }
+  .suggest-title { font-weight: 650; font-size: 14px; }
+  .suggest-sub { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .cards {
+    display: grid; grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 9px; margin: 10px 0 12px;
+  }
   .metric {
-    background: #f8fafc; border: 1px solid var(--border);
-    border-radius: 10px; padding: 8px 10px;
+    background: linear-gradient(150deg, rgba(20, 53, 69, .9), rgba(10, 31, 45, .9));
+    border: 1px solid var(--border); border-radius: 14px; padding: 10px 11px;
   }
   .metric .k { color: var(--muted); font-size: 12px; }
-  .metric .v { font-weight: 600; font-size: 16px; }
+  .metric .v { color: var(--brand); font-weight: 650; font-size: 18px; }
   .rich-text h2 {
     font-size: 18px; line-height: 1.45; margin: 2px 0 12px;
     padding-bottom: 8px; border-bottom: 1px solid var(--border);
   }
   .rich-text h3 {
     font-size: 15px; line-height: 1.5; margin: 17px 0 8px;
-    padding-left: 9px; border-left: 3px solid var(--brand);
+    padding-left: 10px; border-left: 3px solid var(--brand);
+    color: #eaf8f6;
   }
   .rich-text p { margin: 7px 0; }
   .rich-text ul {
@@ -86,20 +170,25 @@
   .rich-text li { margin: 3px 0; }
   .rich-text .report-summary {
     display: inline-block; margin: 2px 0 8px; padding: 4px 9px;
-    border-radius: 999px; background: #edf7ee; color: #236b39;
+    border-radius: 999px; background: rgba(33, 223, 181, .12);
+    color: var(--brand);
     font-size: 13px; font-weight: 600;
   }
   .rich-text .core-summary {
     margin: 3px 0 12px; padding: 9px 10px; border-radius: 10px;
-    background: #f5f8fc; border: 1px solid #e4eaf2;
-    color: #40516a; font-size: 13px; line-height: 1.65;
+    background: rgba(20, 53, 69, .72); border: 1px solid var(--border);
+    color: #cfe1e8; font-size: 13px; line-height: 1.65;
   }
   .rich-text .result-line {
     display: inline-block; margin-top: 8px; padding: 3px 9px;
     border-radius: 999px; font-size: 12px; font-weight: 600;
   }
-  .rich-text .result-line.ok { color: #236b39; background: #edf7ee; }
-  .rich-text .result-line.warn { color: #ad4e00; background: #fff2e8; }
+  .rich-text .result-line.ok {
+    color: var(--brand); background: rgba(33, 223, 181, .12);
+  }
+  .rich-text .result-line.warn {
+    color: #ffc56d; background: rgba(255, 180, 70, .12);
+  }
   .rich-text .result-detail {
     margin: 3px 0; padding-left: 10px; color: var(--muted);
     font-size: 12px; line-height: 1.55;
@@ -110,53 +199,75 @@
   .table-wrap {
     overflow-x: auto; -webkit-overflow-scrolling: touch;
     margin: 8px 0 12px; border: 1px solid var(--border);
-    border-radius: 10px; background: #fff;
+    border-radius: 13px; background: rgba(7, 27, 40, .76);
   }
   .data-table {
     width: max-content; min-width: 100%; border-collapse: collapse;
     font-size: 12px; line-height: 1.45;
   }
   .data-table th, .data-table td {
-    padding: 7px 9px; border-bottom: 1px solid #edf1f5;
+    padding: 8px 10px; border-bottom: 1px solid rgba(142, 194, 209, .12);
     white-space: nowrap; text-align: left;
   }
   .data-table th {
-    position: sticky; top: 0; background: #f3f6fa;
-    color: #40516a; font-weight: 600;
+    position: sticky; top: 0; background: #102b3b;
+    color: var(--brand); font-weight: 600;
   }
   .data-table tr:last-child td { border-bottom: 0; }
-  .data-table tbody tr:nth-child(even) { background: #fafbfd; }
-  details { margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .data-table tbody tr:nth-child(even) { background: rgba(20, 53, 69, .42); }
+  details {
+    margin-top: 10px; font-size: 12px; color: var(--muted);
+    background: rgba(7, 27, 40, .5); border: 1px solid var(--border);
+    border-radius: 11px; padding: 8px 10px;
+  }
   details summary { cursor: pointer; }
   .feedback { display: flex; gap: 10px; margin-top: 8px; font-size: 16px; }
   .feedback span { cursor: pointer; opacity: .55; }
   .feedback span:hover { opacity: 1; }
   footer {
-    background: var(--card); border-top: 1px solid var(--border);
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(5, 20, 31, .94);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(142, 194, 209, .12);
+    padding: 9px 12px calc(9px + env(safe-area-inset-bottom));
+    flex: 0 0 auto;
   }
-  .disclaimer { font-size: 11px; color: var(--muted); margin-bottom: 8px; text-align: center; }
+  .disclaimer {
+    font-size: 10.5px; color: #718b9a; margin-top: 7px; text-align: center;
+  }
   .composer { display: flex; gap: 8px; }
   #input {
     flex: 1; border: 1px solid var(--border); border-radius: 12px;
     /* iOS 在输入框字号 <16px 时会自动放大页面，这里必须保持 16px */
     padding: 10px 12px; font-size: 16px; line-height: 1.5;
-    outline: none; background: #fff;
+    outline: none; background: #0d2433; color: var(--text);
     touch-action: manipulation;
   }
-  #input:focus { border-color: var(--brand); }
+  #input::placeholder { color: #6f8795; }
+  #input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(33,223,181,.08); }
   #send {
-    border: 0; background: var(--brand); color: #fff; border-radius: 12px;
-    padding: 0 18px; font-size: 15px; cursor: pointer;
+    border: 0; background: linear-gradient(145deg, #3bf0ca, #10b995);
+    color: #03251f; border-radius: 12px; width: 48px;
+    display: grid; place-items: center;
+    font-size: 15px; font-weight: 700; cursor: pointer;
   }
   #send:disabled { opacity: .5; }
-  .typing { color: var(--muted); font-size: 13px; }
+  .typing { color: var(--brand); font-size: 13px; }
   .toast {
     position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%);
-    background: rgba(0,0,0,.75); color: #fff; padding: 8px 14px;
+    background: rgba(4, 18, 28, .92); color: #fff; padding: 8px 14px;
+    border: 1px solid var(--border-strong);
     border-radius: 999px; font-size: 13px; opacity: 0; transition: opacity .2s;
   }
   .toast.show { opacity: 1; }
+  @media (min-width: 640px) {
+    body {
+      width: min(100%, 520px); left: 50%; right: auto;
+      transform: translateX(-50%);
+      border-left: 1px solid rgba(142, 194, 209, .1);
+      border-right: 1px solid rgba(142, 194, 209, .1);
+      box-shadow: 0 0 60px rgba(0, 0, 0, .32);
+    }
+  }
   @media (max-width: 520px) {
     #chat { padding-left: 10px; padding-right: 10px; }
     .assistant .bubble { width: 100%; max-width: 100%; padding: 11px 12px; }
@@ -177,13 +288,14 @@
     .data-table tbody { display: block; }
     .data-table tbody tr {
       display: block; margin: 0 0 8px; padding: 5px 11px;
-      background: #fff !important; border: 1px solid var(--border);
+      background: rgba(14, 39, 54, .9) !important;
+      border: 1px solid var(--border);
       border-radius: 10px;
     }
     .data-table tbody td {
       display: grid; grid-template-columns: minmax(86px, 40%) minmax(0, 1fr);
       gap: 12px; width: 100%; padding: 6px 0;
-      border: 0; border-bottom: 1px dashed #edf1f5;
+      border: 0; border-bottom: 1px dashed rgba(142, 194, 209, .13);
       white-space: normal; overflow-wrap: anywhere;
     }
     .data-table tbody td::before {
@@ -196,31 +308,96 @@
 </head>
 <body>
 <header>
-  <span class="dot"></span>
-  <b>睡眠呼吸助手</b>
-  <span class="tag">演示版 · 非医疗诊断</span>
+  <span class="brand-mark" aria-hidden="true">
+    <svg width="23" height="23" viewBox="0 0 24 24" fill="none">
+      <path d="M4 13.2h2.2l1.6-4.8 2.4 9 2.1-7.1 1.6 4.3H20"
+            stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </span>
+  <span class="brand-copy">
+    <b>YZF智能助手</b>
+    <span class="subtitle">YZFTOOLS · DEVICE CARE</span>
+  </span>
+  <span class="tag">AI</span>
 </header>
 
 <main id="chat">
-  <div class="msg assistant">
-    <div class="bubble">
-      你好，我是睡眠呼吸产品助手。可以问我产品使用方法、指标含义，也可以查看治疗数据。
-      <div class="suggest">
-        <button data-q="YA70工作原理是什么？">YA70工作原理是什么？</button>
-        <button data-q="有什么工作模式？">有什么工作模式？</button>
-        <button data-q="帮我生成一份报告">帮我生成一份报告</button>
-        <button data-q="帮我分析一下这一周的数据">帮我分析一下这一周的数据</button>
-      </div>
+  <section class="welcome">
+    <div class="welcome-kicker">YZFTOOLS AI ASSISTANT</div>
+    <h1>让设备使用更简单，<br><span>让数据更容易理解。</span></h1>
+    <p>可以询问产品操作、模式设置和指标含义，也可以结合治疗记录生成报告、查看变化。</p>
+    <div class="welcome-note">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 3 5 6v5c0 4.7 2.8 8.1 7 10 4.2-1.9 7-5.3 7-10V6l-7-3Z"
+              stroke="currentColor" stroke-width="1.8"/>
+        <path d="m9.2 12 1.8 1.8 3.8-4"
+              stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      仅用于设备使用参考，不替代医生诊断
     </div>
+  </section>
+
+  <div class="suggest">
+    <button data-q="YA70工作原理是什么？">
+      <span class="suggest-icon" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M7 4v6m0 4v6m10-16v3m0 4v9M4 10h6M14 7h6M4 17h6"
+                stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="suggest-title">设备原理</span>
+      <span class="suggest-sub">YA70工作原理是什么？</span>
+    </button>
+    <button data-q="有什么工作模式？">
+      <span class="suggest-icon" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
+          <path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1"
+                stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="suggest-title">工作模式</span>
+      <span class="suggest-sub">有什么工作模式？</span>
+    </button>
+    <button data-q="帮我生成一份报告">
+      <span class="suggest-icon" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M6 3h9l3 3v15H6V3Z" stroke="currentColor" stroke-width="1.8"/>
+          <path d="M9 11h6M9 15h6M9 7h3" stroke="currentColor"
+                stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="suggest-title">治疗报告</span>
+      <span class="suggest-sub">帮我生成一份报告</span>
+    </button>
+    <button data-q="帮我分析一下这一周的数据">
+      <span class="suggest-icon" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <path d="M4 18V9m5 9V5m5 13v-6m5 6V7" stroke="currentColor"
+                stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <span class="suggest-title">数据分析</span>
+      <span class="suggest-sub">帮我分析一下这一周的数据</span>
+    </button>
   </div>
 </main>
 
 <footer>
-  <div class="disclaimer">本分析仅供设备使用参考，不构成医疗诊断，参数调整请遵医嘱。</div>
-  <div class="composer">
-    <input id="input" placeholder="请输入问题…" autocomplete="off">
-    <button id="send">发送</button>
-  </div>
+  <form id="composer" class="composer">
+    <input id="input" placeholder="向 YZF 智能助手提问…"
+           autocomplete="off" enterkeyhint="send">
+    <button id="send" type="submit" aria-label="发送">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="m5 12 14-7-4.5 14-3-5.5L5 12Z"
+              stroke="currentColor" stroke-width="1.8"
+              stroke-linejoin="round"/>
+      </svg>
+    </button>
+  </form>
+  <div class="disclaimer">设备使用参考，不构成医疗诊断 · 参数调整请遵医嘱</div>
 </footer>
 <div id="toast" class="toast"></div>
 
@@ -228,7 +405,33 @@
 const chatEl = document.getElementById('chat');
 const inputEl = document.getElementById('input');
 const sendEl = document.getElementById('send');
+const composerEl = document.getElementById('composer');
 const toastEl = document.getElementById('toast');
+
+function syncMobileViewport() {
+  const viewport = window.visualViewport;
+  const height = viewport ? viewport.height : window.innerHeight;
+  const offsetTop = viewport ? viewport.offsetTop : 0;
+  document.documentElement.style.setProperty(
+    '--app-height', Math.round(height) + 'px'
+  );
+  document.documentElement.style.setProperty(
+    '--app-top', Math.round(offsetTop) + 'px'
+  );
+}
+
+syncMobileViewport();
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncMobileViewport);
+  window.visualViewport.addEventListener('scroll', syncMobileViewport);
+}
+window.addEventListener('resize', syncMobileViewport);
+window.addEventListener('orientationchange', () => {
+  setTimeout(syncMobileViewport, 120);
+});
+inputEl.addEventListener('focus', () => {
+  setTimeout(syncMobileViewport, 120);
+});
 
 const stored = localStorage.getItem('sleepagent_session');
 const sessionId = stored || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
@@ -663,9 +866,10 @@ async function send(message) {
   }
 }
 
-sendEl.addEventListener('click', () => send(inputEl.value));
-inputEl.addEventListener('keydown', event => {
-  if (event.key === 'Enter') send(inputEl.value);
+composerEl.addEventListener('submit', event => {
+  event.preventDefault();
+  if (event.isComposing) return;
+  send(inputEl.value);
 });
 </script>
 </body>

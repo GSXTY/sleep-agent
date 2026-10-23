@@ -31,7 +31,7 @@ class ProductContentTest(unittest.TestCase):
     def test_humidity_level_row_is_complete(self):
         from sleepagent import product_kb
         chunk = next(c for c in product_kb.load_chunks()
-                     if c.section == "5.2.1主界面 · 加湿等级")
+                     if c.section == "主界面 · 加湿等级")
         self.assertIn("0为关闭", chunk.text)
         self.assertIn("8为最高加湿等级", chunk.text)
 

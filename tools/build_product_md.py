@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from docx_to_md import convert as convert_docx
+from sleepagent.document_text import normalize_markdown_headings
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "product_docs" / "_originals" / "YA70主机说明书中文版-20260918-改规格.docx"
@@ -164,6 +165,7 @@ def main() -> int:
     outputs["08_常见问题.md"] = build_faq(chapters)
     outputs = relocate_appendix(outputs)
     outputs = fix_section_names(outputs)
+    outputs = {name: normalize_markdown_headings(content) for name, content in outputs.items()}
 
     for filename, content in outputs.items():
         print("  " + filename.ljust(18) + str(len(content)).rjust(6) + " 字")

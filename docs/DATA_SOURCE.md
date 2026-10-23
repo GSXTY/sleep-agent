@@ -16,7 +16,7 @@ Agent 支持两种数据源：
   "data_source": "backend",
   "url": "http://127.0.0.1:8081/infc/respStatisticsYa70/listByDateRange",
   "user_id": 10001,
-  "key": "<你的测试key>",
+  "key": "测试key",
   "start_date": "2026-09-23",
   "end_date": "2026-10-22",
   "timeout": 20
@@ -33,7 +33,7 @@ Agent 支持两种数据源：
 $env:SLEEPAGENT_DATA_SOURCE = "backend"
 $env:SLEEPAGENT_USER_ID = "10001"
 $env:SLEEPAGENT_BACKEND_URL = "http://127.0.0.1:8081/infc/respStatisticsYa70/listByDateRange"
-$env:SLEEPAGENT_BACKEND_KEY = "<你的测试key>"
+$env:SLEEPAGENT_BACKEND_KEY = "测试key"
 $env:SLEEPAGENT_BACKEND_LOOKBACK_DAYS = "30"
 ```
 

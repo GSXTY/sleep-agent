@@ -28,6 +28,14 @@ def strip_known_models(text: str) -> str:
     return cleaned
 
 
+def find_known_model(text: str):
+    """返回问题中提到的已知型号；优先匹配较长型号。"""
+    for model in sorted(KNOWN_MODELS, key=len, reverse=True):
+        if re.search(re.escape(model), text or "", flags=re.IGNORECASE):
+            return model
+    return None
+
+
 def _edit_distance(left: str, right: str) -> int:
     """小型编辑距离；型号字符串很短，不需要额外依赖。"""
     previous = list(range(len(right) + 1))

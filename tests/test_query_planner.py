@@ -22,6 +22,24 @@ class QueryPlannerTest(unittest.TestCase):
         self.assertEqual(plan["window_days"], 7)
         self.assertEqual(plan["source"], "rules")
 
+    def test_general_tasks_do_not_become_therapy_queries(self):
+        for question in ("比较一下这两个手机", "最近一周股票变化", "一加一是多少",
+                         "帮我写一份工作报告", "为什么气温下降了"):
+            with self.subTest(question=question):
+                result = query_planner.plan(question, use_llm=False)
+                self.assertEqual(result["intent"], "general")
+
+    def test_product_actions_are_not_personal_metric_requests(self):
+        for question in ("面罩怎么清洗", "压力管路怎么安装", "滤芯多久换一次",
+                         "面罩保修多少天"):
+            with self.subTest(question=question):
+                self.assertEqual(query_planner.plan(question)["intent"], "product_query")
+
+    def test_general_change_does_not_return_personal_trend(self):
+        result = pipeline.answer("为什么气温下降了", self.night, [], use_llm=False)
+        self.assertNotEqual(result.mode, "趋势分析")
+        self.assertNotIn("treat_score", result.sources)
+
     def test_definition_and_generic_analysis_are_distinguished(self):
         definition = query_planner.plan("时长得分是什么", use_llm=False)
         self.assertEqual(definition["intent"], "explain_metric")

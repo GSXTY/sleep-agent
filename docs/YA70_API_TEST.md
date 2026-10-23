@@ -1,11 +1,10 @@
 # YA70 日期区间接口测试
 
-先在 `.local/ya70_api.json` 或环境变量中配置接口地址、用户 ID 和 key。
-脚本不会内置真实凭据：
+打开 `tools\test_ya70_api.py`，修改文件顶部的三个请求字段：
 
 ```python
 REQUEST_BODY = {
-    "userid": 10001,
+    "userid": 10002,
     "startDate": "2026-09-23",
     "endDate": "2026-10-22",
 }
@@ -17,20 +16,21 @@ REQUEST_BODY = {
 python tools\test_ya70_api.py
 ```
 
-本地接口示例：
+当前联调地址已切换到叶添添提供的本地服务：
 
 ```text
 http://127.0.0.1:8081/infc/respStatisticsYa70/listByDateRange
 ```
 
-实际地址、用户 ID 和 key 仅保存在本机 `.local/` 或环境变量中，不提交仓库。
-返回压力字段为 `treatPressure/treatPressure95 = 400` 时，适配层会按 Pa
+该地址已实测连通，返回 `recode=1`。当前 `2026-09-23` 到 `2026-10-22`
+区间内返回两条记录，日期分别为 `2026-10-15` 和 `2026-10-18`。
+返回压力字段为 `treatPressure/treatPressure95 = 400`，后续适配时需要按 Pa
 转换为 `4.00 hPa`。
 
 脚本会：
 
 1. 向 `URL` 发送 JSON POST；
-2. 在请求头增加 `key: <你的测试key>`；
+2. 在请求头增加 `key: <API_KEY>`；
 3. 打印 HTTP 状态；
 4. 按 Markdown 示例的 JSON 格式打印后端响应。
 

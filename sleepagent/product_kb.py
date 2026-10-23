@@ -22,6 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from .product_models import strip_known_models
+from .document_text import clean_heading
 
 DOCS_DIR_NAME = "product_docs"
 # 默认检索 user、internal、examples 三个目录。
@@ -72,6 +73,7 @@ class Chunk:
     text: str
     index: int
     visibility: str = "user"      # user = 可对用户回答；internal = 仅内部使用
+    heading_level: int | None = None
 
 
 def docs_dir() -> Path:
@@ -181,21 +183,27 @@ def _chunk(doc_name: str, lines: list, visibility: str = VISIBILITY_USER) -> lis
     section = doc_name
     buffer = []
     field_header = ""
+    heading_level = None
 
     def flush(section_override: str | None = None):
         if buffer:
             text = "\n".join(buffer).strip()
             if text:
                 chunks.append(Chunk(doc=doc_name, section=section, text=text,
-                                    index=len(chunks), visibility=visibility))
+                                    index=len(chunks), visibility=visibility,
+                                    heading_level=heading_level))
                 if section_override:
                     chunks[-1].section = section_override
             buffer.clear()
 
     for line in lines:
+        if re.fullmatch(r"\s*<!--.*?-->\s*", line):
+            continue  # FAQ 编号等维护元数据不参与检索正文和回答。
         if _is_heading(line):
             flush()
             section = line.lstrip("# ").strip() or section
+            markdown_heading = re.match(r"^(#{1,6})\s+", line)
+            heading_level = len(markdown_heading.group(1)) if markdown_heading else None
             field_header = ""
             continue
         if " | " in line and "故障排除" in section:
@@ -256,18 +264,20 @@ def _merge_intro_sections(chunks: list) -> None:
     while index < len(chunks):
         current = chunks[index]
         text = current.text.strip()
-        depth = _section_depth(current.section)
+        depth = current.heading_level or _section_depth(current.section)
         if depth and len(text) <= 40 and text.endswith(("：", ":")):
             body = [current.text]
             cursor = index + 1
             while cursor < len(chunks):
                 nxt = chunks[cursor]
-                next_depth = _section_depth(nxt.section)
+                next_depth = nxt.heading_level or _section_depth(nxt.section)
                 if next_depth is not None and next_depth <= depth:
                     break
                 if sum(len(item) for item in body) + len(nxt.text) > INTRO_MERGE_LIMIT:
                     break
                 label = nxt.section.strip()
+                # 合并正文只保留子章节名称；编号留在 section 元数据用于检索和溯源。
+                label = clean_heading(label)
                 # 子章节名本身是信息（CPAP / AutoCPAP / S / AutoS），合并时必须保留
                 body.append((label + "：" if label and len(label) <= 24 else "") + nxt.text)
                 cursor += 1

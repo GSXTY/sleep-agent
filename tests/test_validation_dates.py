@@ -130,7 +130,13 @@ class ReferenceNumberTest(unittest.TestCase):
     def test_single_level_numbers_are_not_whitelisted(self):
         # 语料里有"1 概述""2 安全使用原则"，但单层数字不能当章节号放行
         from sleepagent import product_kb
-        numbers = product_kb.section_numbers()
+        with unittest.mock.patch.object(product_kb, "load_chunks", return_value=(
+            product_kb.Chunk("test.md", "1.1工作原理", "正文", 0),
+            product_kb.Chunk("test.md", "1 概述", "正文", 1),
+        )):
+            product_kb.section_numbers.cache_clear()
+            numbers = product_kb.section_numbers()
+        product_kb.section_numbers.cache_clear()
         self.assertIn("1.1", numbers)
         self.assertNotIn("1", numbers)
         result = validation.check_output(

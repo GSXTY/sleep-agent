@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sleepagent import product_kb
+from sleepagent.document_text import normalize_markdown_headings
 
 NOTE_LABELS = ("警告", "注意", "说明", "提示", "警示")
 NUMBER_HEADING = re.compile(r"^(?:[一二三四五六七八九十]+、|\d+(?:\.\d+)*[、.\s]?)")
@@ -262,6 +263,7 @@ def main() -> int:
 
     src = Path(args.src)
     markdown, stats = convert(src, args.title)
+    markdown = normalize_markdown_headings(markdown)
     print(src.name + " → 标题 " + str(stats["headings"])
           + " / 表格 " + str(stats["tables"])
           + " / 段落 " + str(stats["paragraphs"])

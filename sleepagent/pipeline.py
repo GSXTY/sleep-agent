@@ -23,6 +23,7 @@ from sleepagent import (analysis, embeddings, intent_fallback, knowledge, llm, n
                         report_insight, query_planner, router, runtime_info, safety,
                         service_intent, social, validation)
 from sleepagent.router import route
+from sleepagent.document_text import clean_heading
 
 logger = logging.getLogger("sleepagent.pipeline")
 
@@ -50,7 +51,18 @@ PRODUCT_PROMPT = """你在为一家睡眠呼吸设备公司做客服助手。
 4. 如果资料与问题明显无关，就说明没有查到相关资料，不要牵强引用。
 5. 不给出疾病诊断，不建议用户自行调整治疗压力或设备参数；涉及这类问题应引导联系医生。
 6. 涉及当前日期或时间时，一律以【系统信息】为准，不要凭记忆回答。
-7. 用简体中文，条理清楚，控制在 300 字以内。"""
+7. 先给出用户所需的结论或操作步骤；多个问题逐项回答，资料缺失的那一项单独说明，不遗漏其他可回答的问题。
+8. 用简体中文，条理清楚，控制在 300 字以内。"""
+
+PRODUCT_MODEL_SCOPE_PROMPT = """
+
+【型号范围说明】
+用户问题中提到了 YA70 系列型号。只要资料文件或章节属于 YA70 系列，
+正文中的“本系列设备”可以视为对该 YA70 系列的一般说明，不要因为正文没有
+逐字重复型号而回答“资料未覆盖 YA70”。
+同时必须保留系列口径：不能声称所有 YA70 子型号完全相同；资料没有区分具体
+子型号时，说明“资料按 YA70 系列描述，具体子型号以说明书或设备界面为准”。
+"""
 
 DEVICE_PROMPT = """你是睡眠呼吸机数据解读助手。
 
@@ -94,6 +106,7 @@ LLM_MAX_TOKENS_BY_MODE = {
 }
 PUBLIC_CACHE_TTL_SECONDS = 3600
 PUBLIC_CACHE_MAX_ENTRIES = 256
+PRODUCT_LLM_TIMEOUT_SECONDS = 8.0
 _public_cache = {}
 _public_cache_lock = threading.Lock()
 
@@ -190,6 +203,25 @@ def _response(text: str, mode: str, detail: str = "", sources=None,
         risk_flags=list(risk_flags or []),
         structured=structured,
     )
+
+
+def _log_model_failure(request_id: str, result: dict) -> None:
+    """记录可定位的失败类别，不把用户材料、凭据或上游响应正文写入日志。"""
+    status = result.get("status", "unknown")
+    detail = str(result.get("detail", "")).lower()
+    reason = {"empty": "empty_content", "busy": "queue_full",
+              "unconfigured": "missing_config"}.get(status, "upstream_error")
+    if any(word in detail for word in ("timeout", "timed out", "超时")):
+        reason = "timeout"
+    elif "401" in detail:
+        reason = "authentication"
+    elif "429" in detail:
+        reason = "rate_limit"
+    elif "404" in detail:
+        reason = "endpoint_or_model_missing"
+    elif any(word in detail for word in ("无法连接", "refused", "connection", "ssl")):
+        reason = "connection_error"
+    logger.warning("[%s] [MODEL_FAILURE] status=%s reason=%s", request_id, status, reason)
 
 
 def _log_request(request_id: str, mode: str, intent: str, recall: int,
@@ -293,7 +325,10 @@ GENERAL_PROMPT = """你是这家睡眠呼吸设备公司的智能助手，既能
 3. 不给出疾病诊断，不判定病情严重程度，不建议自行调整治疗压力或设备参数。
 4. 如果用户描述的是急性身体不适（胸痛、呼吸困难、憋醒等），优先建议就医。
 5. 涉及当前日期或时间时，一律以【系统信息】为准，不要凭记忆回答。
-6. 控制在 250 字以内。"""
+6. 先识别本轮要完成的任务并直接交付结果：要求写作就给出成稿，要求比较就给出比较，要求步骤就给出步骤，不只说“可以帮你”。
+7. 多个问题逐项覆盖；遵循用户指定的格式、语言和长度。只在缺少完成任务所必需的信息时追问，其他细节作合理假设并简短说明。
+8. 历史只用于理解指代；用户切换任务或纠正要求时，以本轮为准。不要声称已经完成没有工具或执行证据的操作。
+9. 默认控制在 250 字以内；用户明确要求的篇幅或完整任务优先。"""
 
 
 # 路由识别出的主题名与事实层使用的话题名并不一致，这里做一次映射。
@@ -985,6 +1020,74 @@ def _asks_product_modes(question: str) -> bool:
     return bool(PRODUCT_MODE_PATTERN.search(question))
 
 
+def _asks_product_principle(question: str) -> bool:
+    """问产品工作原理，而不是某一晚的设备数据。"""
+    return "工作原理" in (question or "") and not _has_time_ref(question)
+
+
+def _direct_product_section(question: str) -> str | None:
+    """只有完整的单一章节问题才能直读，复合任务和个人数据仍走原管线。"""
+    if _has_time_ref(question):
+        return None
+    text = product_models.strip_known_models(question)
+    text = re.sub(r"[\s？?。！!，,]", "", text)
+    prefix = (
+        r"(?:请问|请介绍一下|介绍一下|帮我查一下|请告诉我)?"
+        r"(?:这个|这款|本系列)?(?:设备|产品|呼吸机)?的?"
+    )
+    modes = (
+        r"(?:(?:有|支持)?(?:哪些|什么|几种)(?:工作|治疗|通气)?模式|"
+        r"(?:工作|治疗|通气)?模式(?:都?有(?:哪些|什么|几种)|有哪些|是什么))"
+    )
+    if re.fullmatch(prefix + modes + r"(?:呢|吗)?", text):
+        return "工作模式"
+    if re.fullmatch(prefix + r"工作原理(?:是什么|是怎样的|是怎么样的)?(?:呢|吗)?", text):
+        return "工作原理"
+    return None
+
+
+def _direct_product_hits(section: str) -> list:
+    """直读正式说明书，不探测向量服务，不触发索引更新。缺少正文时交回检索。"""
+    return [
+        {"doc": chunk.doc, "section": chunk.section, "text": chunk.text,
+         "index": chunk.index, "visibility": chunk.visibility}
+        for chunk in product_kb.load_chunks()
+        if chunk.doc == "01_产品说明.md" and chunk.visibility == "user"
+        and clean_heading(chunk.section) == section and chunk.text.strip()
+    ]
+
+
+def _mode_comparison_key(question: str) -> str:
+    text = re.sub(r"[\s？?。]", "", clean_heading(question).lower())
+    text = re.sub(r"^(?:请问|帮我解释一下|解释一下)", "", text)
+    text = text.replace("模式", "").replace("与", "和")
+    text = re.sub(r"(?:有什么不同|有什么差别|有啥区别|区别是什么|区别在哪)$", "有什么区别", text)
+    return text
+
+
+def _direct_mode_comparison(question: str) -> dict | None:
+    """只匹配已审阅的模式比较 FAQ，不用模糊相似度代替用户的其他任务。"""
+    key = _mode_comparison_key(question)
+    if key not in ("单水平和双水平有什么区别", "双水平和单水平有什么区别",
+                   "cpap和autocpap有什么区别", "autocpap和cpap有什么区别"):
+        return None
+    if key.startswith("双水平"):
+        key = "单水平和双水平有什么区别"
+    elif key.startswith("autocpap"):
+        key = "cpap和autocpap有什么区别"
+    for chunk in product_kb.load_chunks():
+        if (chunk.doc != "10_YA70A常见问题.md" or chunk.visibility != "user"
+                or _mode_comparison_key(chunk.section) != key):
+            continue
+        # 只提取标准答案；缺失时交回完整检索，避免输出维护说明。
+        answer = re.fullmatch(r"\s*-\s*\*\*标准答案\*\*\s*[：:]\s*(.+?)\s*", chunk.text, re.S)
+        if answer:
+            return {"doc": chunk.doc, "section": chunk.section,
+                    "text": answer.group(1), "index": chunk.index,
+                    "visibility": chunk.visibility}
+    return None
+
+
 def _facts_for(user_id: str, night: nightdata.Night, decision: dict, question: str) -> list:
     if decision["topics"] != ["overall"]:
         picked = []
@@ -1087,7 +1190,7 @@ def _option(kind: str, title: str, value: str = "", source: str = "",
     """
     return {
         "type": kind,
-        "title": title,
+        "title": _section_heading(title) if kind == "topic" else title,
         "value": value or title,
         "source": source,
         "visibility": visibility,
@@ -1100,6 +1203,13 @@ INTENT_OPTIONS = (
     _option("intent", "看我的治疗数据", "查看我最近一晚的治疗数据"),
     _option("intent", "生成单晚报告", "生成最近一晚的治疗报告"),
     _option("intent", "解释指标含义", "解释 AHI、漏气量这类指标的含义"),
+)
+
+GREETING_OPTIONS = (
+    _option("intent", "生成单晚报告", "生成最近一晚的治疗报告"),
+    _option("intent", "什么是 AHI", "什么是 AHI"),
+    _option("intent", "滤芯多久换一次", "滤芯多久换一次"),
+    _option("intent", "查看工作模式", "YA70有什么工作模式"),
 )
 
 
@@ -1274,7 +1384,7 @@ def _excerpt(text: str, max_chars: int = 600) -> str:
 def _section_heading(section: str) -> str:
     """从内部章节标识中提取面向用户的主题名，不暴露文件名和章节编号。"""
     heading = str(section or "").split(" · ")[-1].strip()
-    heading = re.sub(r"^(?:[一二三四五六七八九十百]+、|\d+(?:\.\d+)*\s*)", "", heading)
+    heading = clean_heading(heading)
     return heading.strip(" ：:·-")
 
 
@@ -1470,6 +1580,8 @@ def answer(query: UserQuery | str, night: nightdata.Night,
         if use_llm:
             system = (
                 PRODUCT_PROMPT
+                + (PRODUCT_MODEL_SCOPE_PROMPT
+                   if product_models.find_known_model(question) else "")
                 + "\n\n用户本轮包含多个独立问题。必须按【子问题】顺序逐项回答，"
                   "不能只回答第一个；资料未覆盖的子问题要明确说明。"
             )
@@ -1481,7 +1593,8 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                 "content": SYS + "【产品资料】\n" + material
                            + "\n\n【用户问题】\n" + question + "\n\n请逐项回答。",
             })
-            result = llm.chat(messages, max_tokens=360)
+            result = llm.chat(messages, max_tokens=360,
+                              timeout_seconds=PRODUCT_LLM_TIMEOUT_SECONDS)
             llm_usage = result.get("usage") or {}
             if result["status"] == "success":
                 check = validation.check_output(
@@ -1514,6 +1627,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                 fallback_flags = ["validation_failed"]
                 fallback_marker = "VALIDATION_FAIL"
             else:
+                _log_model_failure(request_id, result)
                 fallback_reason = (
                     "模型调用失败（" + result["status"] + "）：" + result["detail"]
                 )
@@ -1696,6 +1810,27 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             intent="app_report_insight",
         )
 
+    comparison_hit = _direct_mode_comparison(question)
+    if comparison_hit:
+        return emit(
+            comparison_hit["text"], "产品文档（规则版）", "模式比较：标准答案直读",
+            sources=[_source_label(comparison_hit)],
+            validation={"ok": True, "problems": []},
+            intent="mode_comparison", recall=1,
+        )
+
+    direct_section = _direct_product_section(question)
+    if direct_section:
+        direct_hits = _direct_product_hits(direct_section)
+        if direct_hits:
+            return emit(
+                _doc_fallback(direct_hits), "产品文档（规则版）",
+                "说明书章节直读：" + direct_section,
+                sources=list(dict.fromkeys(_source_label(hit) for hit in direct_hits)),
+                validation={"ok": True, "problems": []},
+                intent="product_section", recall=len(direct_hits),
+            )
+
     semantic_plan = query_planner.plan(question, use_llm=use_llm)
     plan_metrics = set(semantic_plan.get("metrics") or [])
     plan_intent = semantic_plan.get("intent")
@@ -1854,7 +1989,12 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                     intent="report",
                     marker="" if acceptance["passed"] else "VALIDATION_FAIL")
     if intent in ("greeting", "capability", "identity", "thanks", "unclear", "empty"):
-        menu = list(INTENT_OPTIONS) if intent in ("capability", "unclear", "empty") else []
+        if intent == "greeting":
+            menu = list(GREETING_OPTIONS)
+        elif intent in ("capability", "unclear", "empty"):
+            menu = list(INTENT_OPTIONS)
+        else:
+            menu = []
         return emit(social.reply(intent, night), "对话", "意图 " + intent,
                     candidates=menu, intent=intent)
 
@@ -1971,6 +2111,30 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             intent=decision["goal"],
         )
 
+    if _asks_product_principle(question):
+        principle_hits = [
+            hit for hit in raw_doc_hits
+            if "工作原理" in str(hit.get("section", ""))
+            and str(hit.get("visibility")) != "examples"
+        ]
+        principle_hits.sort(
+            key=lambda hit: (
+                0 if str(hit.get("doc", "")).startswith("01_") else 1,
+                -float(hit.get("score") or 0),
+            )
+        )
+        if principle_hits:
+            top = principle_hits[0]
+            return emit(
+                _doc_fallback([top]),
+                "产品文档（规则版）",
+                "产品工作原理：确定性资料回答",
+                sources=[_source_label(top)],
+                validation={"ok": True, "problems": []},
+                intent=decision["goal"],
+                recall=len(principle_hits),
+            )
+
     if (doc_hits and product_priority
             and product_features.candidate_needed(
         question, doc_hits[0].get("section", "")
@@ -2015,6 +2179,18 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             )
         # 连候选都凑不出来，说明这次检索没有可用结果
         doc_hits = []
+
+    if _asks_product_modes(question) and doc_hits:
+        top = doc_hits[0]
+        return emit(
+            _doc_fallback([top]),
+            "产品文档（规则版）",
+            "产品工作模式：确定性资料回答",
+            sources=[_source_label(top)],
+            validation={"ok": True, "problems": []},
+            intent=decision["goal"],
+            recall=len(doc_hits),
+        )
 
     llm_intent = None
     intent_detail = "意图 " + decision["goal"]
@@ -2149,6 +2325,8 @@ def answer(query: UserQuery | str, night: nightdata.Night,
         if mode == "产品文档":
             material = product_kb.render(doc_hits)
             system = PRODUCT_PROMPT
+            if product_models.find_known_model(question):
+                system += PRODUCT_MODEL_SCOPE_PROMPT
             user_prefix = SYS + "【产品资料】\n" + material + "\n\n【用户问题】\n"
         elif mode == "设备数据":
             material = "\n".join(item.text for item in picked)
@@ -2172,10 +2350,11 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             context_turns = 0
         messages.extend(_context_messages(history, max_turns=context_turns))
         messages.append({"role": "user", "content": user_prefix + question + "\n\n请据此回答。"})
-        result = llm.chat(
-            messages,
-            max_tokens=LLM_MAX_TOKENS_BY_MODE.get(mode, 300),
-        )
+        chat_options = {"max_tokens": LLM_MAX_TOKENS_BY_MODE.get(mode, 300),
+                        "timeout_seconds": 15.0}
+        if mode == "产品文档":
+            chat_options["timeout_seconds"] = PRODUCT_LLM_TIMEOUT_SECONDS
+        result = llm.chat(messages, **chat_options)
         llm_usage = result.get("usage") or {}
         if result["status"] == "success":
             check = validation.check_output(result["content"], material,
@@ -2205,6 +2384,7 @@ def answer(query: UserQuery | str, night: nightdata.Night,
             fallback_flags = ["validation_failed"]
             fallback_marker = "VALIDATION_FAIL"
         else:
+            _log_model_failure(request_id, result)
             fallback_reason = "模型调用失败（" + result["status"] + "）：" + result["detail"]
             fallback_validation = {"ok": None, "problems": [fallback_reason]}
             fallback_flags = ["llm_error"]

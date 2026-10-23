@@ -79,7 +79,7 @@ APP_INSIGHT_TERMS = (
 )
 PRODUCT_TERMS = (
     "怎么用", "怎么清洁", "怎么安装", "报错", "故障", "滤芯", "面罩",
-    "管路", "蓝牙", "app怎么", "售后", "保修",
+    "管路", "蓝牙", "app怎么", "售后", "保修", "工作原理", "工作模式",
 )
 DOMAIN_HINTS = (
     "睡眠", "数据", "设备", "机器", "呼吸", "治疗", "使用", "面罩",
@@ -157,6 +157,12 @@ def _window(question: str) -> tuple:
 
 def _intent(question: str, metrics: list) -> str:
     text = (question or "").lower()
+    # 操作任务优先于伴随的“压力 / 面罩 / 多少”等词，避免去读个人数据。
+    if any(term in text for term in (
+            "怎么清洗", "如何清洗", "怎么清洁", "如何清洁", "怎么安装",
+            "如何安装", "怎么连接", "如何连接", "怎么配对", "怎么更换",
+            "多久换", "更换周期", "保修", "售后", "报错", "故障")):
+        return "product_query"
     if any(term in text for term in APP_INSIGHT_TERMS):
         return "app_report_insight"
     if any(term in text for term in REPORT_TERMS):
@@ -164,6 +170,13 @@ def _intent(question: str, metrics: list) -> str:
             return "report"
     if any(term in text for term in DEFINITION_TERMS) and metrics:
         return "explain_metric"
+    # 比较、数值、趋势本身不是领域信号；普通任务不能借用治疗记录作答。
+    data_signal = bool(metrics) or any(term in text for term in (
+        "治疗", "呼吸机", "使用情况", "睡眠情况", "我的数据", "治疗数据",
+        "设备数据", "睡眠数据", "百分制", "昨晚", "最近几晚",
+    ))
+    if not data_signal:
+        return "product_query" if any(term in text for term in PRODUCT_TERMS) else "general"
     if any(term in text for term in COMPARE_TERMS):
         if (len(re.findall(r"\d{4}-\d{1,2}-\d{1,2}", text)) >= 2
                 or any(term in text for term in (
@@ -220,6 +233,8 @@ def _parse(content: str):
         data = json.loads(match.group(0))
     except (ValueError, TypeError, json.JSONDecodeError):
         return None
+    if not isinstance(data, dict):
+        return None
     intent = str(data.get("intent", "")).strip()
     window = str(data.get("window", "")).strip()
     raw_metrics = data.get("metrics", [])
@@ -255,6 +270,7 @@ def _classify_with_llm(question: str):
         ],
         temperature=0,
         max_tokens=120,
+        timeout_seconds=4.0,
     )
     if result.get("status") != "success":
         return None

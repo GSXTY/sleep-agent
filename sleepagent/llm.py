@@ -15,6 +15,7 @@ import contextvars
 import json
 import os
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -27,7 +28,7 @@ OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434"
 OLLAMA_DEFAULT_MODEL = "qwen3:1.7b"
 OPENAI_DEFAULT_URL = "https://api.openai.com/v1"
 
-DEFAULT_TIMEOUT = 60.0
+DEFAULT_TIMEOUT = 15.0
 MAX_CONCURRENCY = max(1, int(os.getenv("LLM_MAX_CONCURRENCY", "8")))
 QUEUE_TIMEOUT = max(0.1, float(os.getenv("LLM_QUEUE_TIMEOUT_SECONDS", "15")))
 _chat_slots = threading.BoundedSemaphore(MAX_CONCURRENCY)
@@ -232,6 +233,7 @@ def _usage(body: dict, provider: str) -> dict:
 
 def _open_request(request, timeout: float):
     """发送请求；失效代理导致连接被拒时，自动绕过代理再试一次。"""
+    started = time.monotonic()
     try:
         return urllib.request.urlopen(request, timeout=timeout)
     except urllib.error.URLError as exc:
@@ -239,17 +241,23 @@ def _open_request(request, timeout: float):
         if not any(marker in reason for marker in ("refused", "10061")):
             raise
         direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        return direct.open(request, timeout=timeout)
+        remaining = timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            raise TimeoutError("模型连接等待超时") from exc
+        return direct.open(request, timeout=remaining)
 
 
-def chat(messages: list, *, temperature: float = 0.2, max_tokens: int = 400) -> dict:
+def chat(messages: list, *, temperature: float = 0.2, max_tokens: int = 400,
+         timeout_seconds: float | None = None) -> dict:
     """带进程内并发上限的聊天入口。"""
     bridge = _ASYNC_BRIDGE.get()
     if bridge is not None:
         return bridge.call(chat_async(
-            messages, temperature=temperature, max_tokens=max_tokens
+            messages, temperature=temperature, max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
         ))
-    if not _chat_slots.acquire(timeout=QUEUE_TIMEOUT):
+    queue_timeout = min(QUEUE_TIMEOUT, 0.5, timeout_seconds) if timeout_seconds is not None else QUEUE_TIMEOUT
+    if not _chat_slots.acquire(timeout=queue_timeout):
         return {
             "status": "busy",
             "content": "",
@@ -260,16 +268,19 @@ def chat(messages: list, *, temperature: float = 0.2, max_tokens: int = 400) -> 
         }
     try:
         return _chat_unlocked(
-            messages, temperature=temperature, max_tokens=max_tokens
+            messages, temperature=temperature, max_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
         )
     finally:
         _chat_slots.release()
 
 
 def _chat_unlocked(messages: list, *, temperature: float = 0.2,
-                   max_tokens: int = 400) -> dict:
+                   max_tokens: int = 400, timeout_seconds: float | None = None) -> dict:
     """返回 {status, content, model, provider, detail}。status 非 success 时由调用方回退。"""
-    cfg = settings()
+    cfg = dict(settings())
+    if timeout_seconds is not None:
+        cfg["timeout"] = min(cfg["timeout"], max(0.1, timeout_seconds))
     if cfg["provider"] == "openai":
         if not cfg["api_key"]:
             return {"status": "unconfigured", "content": "", "model": cfg["model"],
@@ -309,13 +320,16 @@ def _chat_unlocked(messages: list, *, temperature: float = 0.2,
 
 
 async def chat_async(messages: list, *, temperature: float = 0.2,
-                     max_tokens: int = 400) -> dict:
+                     max_tokens: int = 400, timeout_seconds: float | None = None) -> dict:
     """异步聊天入口，使用共享 httpx 连接池。"""
-    cfg = settings()
+    cfg = dict(settings())
+    if timeout_seconds is not None:
+        cfg["timeout"] = min(cfg["timeout"], max(0.1, timeout_seconds))
     acquired = False
     try:
         await asyncio.wait_for(
-            _async_chat_slots.acquire(), timeout=QUEUE_TIMEOUT
+            _async_chat_slots.acquire(), timeout=(min(QUEUE_TIMEOUT, 0.5, cfg["timeout"])
+                                                  if timeout_seconds is not None else QUEUE_TIMEOUT)
         )
         acquired = True
     except asyncio.TimeoutError:
@@ -362,10 +376,13 @@ async def chat_async(messages: list, *, temperature: float = 0.2,
                 },
             }
         try:
-            response = await async_http.request(
+            response = await asyncio.wait_for(async_http.request(
                 "POST", url, json=payload, headers=headers,
                 timeout=cfg["timeout"],
-            )
+            ), timeout=cfg["timeout"])
+        except asyncio.TimeoutError:
+            return {"status": "error", "content": "", "model": cfg["model"],
+                    "provider": cfg["provider"], "detail": "模型请求等待超时", "usage": {}}
         except Exception as exc:
             return {
                 "status": "error",

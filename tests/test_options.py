@@ -64,7 +64,7 @@ class TestTopicOptions(OptionTestCase):
             result = self.ask("面罩怎么清洁")
         self.assertEqual(result.mode, "产品文档（需要确认）")
         self.assertEqual([item["title"] for item in result.candidates],
-                         ["日常清洁", "六、清洁和保养"])
+                         ["日常清洁", "清洁和保养"])
         self.assertNotIn("注意", [item["title"] for item in result.candidates])
         self.assertEqual(result.candidates[0]["visibility"], "examples")
         self.assertIn("清洁与维护.md", result.candidates[0]["source"])
@@ -79,7 +79,7 @@ class TestTopicOptions(OptionTestCase):
         self.assertEqual(result.mode, "产品文档（未命中）")
         self.assertIn("没有和这个问题直接对应", result.text)
         self.assertEqual([item["title"] for item in result.candidates],
-                         ["6.4 更换空气滤芯", "六、清洁和保养"])
+                         ["更换空气滤芯", "清洁和保养"])
         self.assertEqual(result.risk_flags, ["needs_topic_confirmation"])
         self.assertOptionShape(result.candidates)
 

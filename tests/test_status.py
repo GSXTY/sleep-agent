@@ -19,7 +19,7 @@ CHAT_CONFIG = {
     "provider": "openai",
     "model": "deepseek-chat",
     "base_url": "https://api.deepseek.com/v1",
-    "api_key": "test-api-key-must-not-leak",
+    "api_key": "sk-test-secret-must-not-leak",
     "timeout": 60,
 }
 EMBEDDING_CONFIG = {

@@ -21,7 +21,7 @@ if errorlevel 1 (
 
 if not exist "demo_server.py" (
     echo [ERROR] demo_server.py not found.
-    echo Put this file in the project root directory.
+    echo Put this file in D:\VVFLY\sleep-agent-win.
     echo.
     pause
     exit /b 1

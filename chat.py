@@ -17,7 +17,7 @@
   python chat.py "滤芯多久换一次"   单次提问
   python chat.py --report        打印单晚报告
   python chat.py --no-llm "..."  强制使用规则版
-  python chat.py --data-source backend --user-id <TEST_USER_ID>
+  python chat.py --data-source backend --user-id 10001
                                   使用 YA70 后台数据
 """
 from __future__ import annotations

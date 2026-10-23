@@ -33,16 +33,15 @@ class TitleMatchTest(unittest.TestCase):
 
 
 class PipelineTitleTest(unittest.TestCase):
-    def test_quoted_section_number_passes_validation(self):
-        """模型引用【1】和 1.1 章节号时，整条链路应显示"已校验"。"""
+    def test_product_principle_uses_deterministic_section(self):
+        """产品工作原理直接使用确定性章节，不依赖模型改写。"""
         night = nightdata.load_dataset()[-1]
-        answer = "根据【1】1.1 工作原理：设备持续输出正压气流，保持上气道开放。"
-        with mock.patch.object(pipeline.llm, "chat", return_value={
-                "status": "success", "content": answer,
-                "provider": "fake", "model": "fake"}):
+        with mock.patch.object(pipeline.llm, "chat") as chat:
             result = pipeline.answer("产品工作原理", night, [], use_llm=True)
-        self.assertIn("已校验", result.mode)
+        chat.assert_not_called()
+        self.assertEqual(result.mode, "产品文档（规则版）")
         self.assertIn("正压", result.text)
+        self.assertIn("01_产品说明.md · 工作原理", result.sources)
 
 
 if __name__ == "__main__":

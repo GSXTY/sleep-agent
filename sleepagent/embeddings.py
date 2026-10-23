@@ -28,7 +28,7 @@ OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434"
 OLLAMA_DEFAULT_MODEL = "bge-m3"
 OPENAI_DEFAULT_URL = "https://api.openai.com/v1"
 OPENAI_DEFAULT_MODEL = "text-embedding-3-small"
-DEFAULT_TIMEOUT = 30.0
+DEFAULT_TIMEOUT = 8.0
 
 _probe_cache = {"at": 0.0, "ok": False}
 PROBE_TTL = 60.0            # 探测成功后的缓存秒数，避免每次检索都发请求

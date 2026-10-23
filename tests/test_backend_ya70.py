@@ -8,7 +8,7 @@ ROW = {
     "id": 11587,
     "userid": 10002,
     "recordeDate": "2026-10-15 00:00:00",
-    "deviceid": "TEST-DEVICE-001",
+    "deviceid": "C4812297AE9F",
     "deviceType": "70120",
     "treatModels": "2",
     "treatTime": 14,

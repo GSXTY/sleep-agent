@@ -1,16 +1,16 @@
 {
   "_说明": "把本文件复制为 config.json 后填写。环境变量优先级高于本文件。",
   "_注意": "config.json 里含 API Key，不要提交到代码仓库。",
-  "provider": "openai",
+    "provider": "openai",
   "model": "deepseek-chat",
   "base_url": "https://api.deepseek.com/v1",
   "api_key": "在这里填你的 API Key",
-  "timeout_seconds": 60,
+  "timeout_seconds": 15,
   "embedding": {
     "_说明": "默认使用 ollama/bge-m3；服务或模型不可用时自动退回纯关键词检索。",
     "provider": "ollama",
     "model": "bge-m3",
     "base_url": "http://127.0.0.1:11434",
-    "timeout_seconds": 30
+    "timeout_seconds": 8
   }
 }
