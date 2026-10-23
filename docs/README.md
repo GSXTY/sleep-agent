@@ -18,6 +18,8 @@
 | [COST_CONTROL.md](COST_CONTROL.md) | 公共问答缓存、上下文预算、token 预算与日志 |
 | [CONCURRENCY_SSE.md](CONCURRENCY_SSE.md) | 会话锁、模型并发上限、SSE 事件和安全流式策略 |
 | [FASTAPI_MIGRATION.md](FASTAPI_MIGRATION.md) | FastAPI/ASGI 并行入口、Uvicorn 启动、灰度与回滚 |
+| [ASYNC_NETWORKING.md](ASYNC_NETWORKING.md) | 共享 AsyncClient、异步模型和后台数据客户端 |
+| [WORK_PROGRESS_REPORT_2026-10-23.md](WORK_PROGRESS_REPORT_2026-10-23.md) | 2026-10-23 工作进度、完成度、风险和后续计划 |
 | [BACKEND_DATA_BRIEF.md](BACKEND_DATA_BRIEF.md) | 后端沟通版：一个接口、字段清单、三条硬规则、8 个确认项 |
 | [BACKEND_DATA_API_V1.md](BACKEND_DATA_API_V1.md) | 后端数据接口需求、字段契约、缺失语义、错误降级与对账清单 |
 

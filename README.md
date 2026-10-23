@@ -57,7 +57,8 @@ python chat.py --report                     # 单晚治疗报告
 python -m unittest discover -s tests -v
 ```
 
-当前状态：421 项测试全部通过。
+当前状态：432 项测试全部通过（安装异步依赖后）；未安装异步依赖时，
+421 项核心测试仍可运行，8 项异步测试自动跳过。
 
 ### FastAPI 并行入口（可选）
 
@@ -69,10 +70,12 @@ python -m uvicorn api_server:app --host 0.0.0.0 --port 8101
 ```
 
 FastAPI 入口包含异步会话锁、全局并发上限、SSE 心跳和客户端断开处理。
-现有同步 Agent 管线暂通过 `asyncio.to_thread()` 调用；DeepSeek 和后台接口
-后续再迁移到异步 `httpx`。
+后台数据已经通过异步 `httpx` 预取，DeepSeek 也提供 `llm.chat_async()`；
+8101 通过 `pipeline.answer_async()` 将同步 Agent 核心中的模型调用桥接到异步
+连接池；8100 和 CLI 保留同步路径作为兼容与回滚入口。
 
-未安装 FastAPI 依赖时，新增的 3 项 API 测试会自动跳过，不影响现有 421 项测试。
+未安装 FastAPI/httpx 依赖时，3 项 API 测试和 5 项异步网络测试会自动跳过，
+不影响现有 421 项核心测试。
 详细步骤见 [FastAPI 异步迁移](docs/FASTAPI_MIGRATION.md)。
 
 ### 配置与安全
@@ -122,6 +125,8 @@ Copy-Item config.example.json config.json
 - [大模型成本控制](docs/COST_CONTROL.md)
 - [并发控制与 SSE](docs/CONCURRENCY_SSE.md)
 - [FastAPI 异步迁移](docs/FASTAPI_MIGRATION.md)
+- [异步网络层](docs/ASYNC_NETWORKING.md)
+- [2026-10-23 工作进度汇报](docs/WORK_PROGRESS_REPORT_2026-10-23.md)
 - [Bad Case 诊断与回流](docs/BADCASE_WORKFLOW.md)
 - [App 内嵌 Demo 指南](docs/DEMO_GUIDE.md)
 - [后端数据对接 · 沟通版](docs/BACKEND_DATA_BRIEF.md)
@@ -325,7 +330,7 @@ python demo_server.py             # App 内嵌 Demo：http://127.0.0.1:8100
 
 也可以直接双击项目根目录的 `demo.cmd`，窗口会打印本机和手机访问地址。
 
-当前：421 项测试通过，端到端规则评测 79/79；混合检索基线 R@1 100% / R@3 100%。
+当前：432 项测试通过，端到端规则评测 79/79；混合检索基线 R@1 100% / R@3 100%。
 
 `eval_agent.py` 从入口层模拟真实提问，按类别检查模式、关键数字和选项，
 用来发现"单测全绿但整机答错"的问题。`--llm` 会额外统计模型耗时并把

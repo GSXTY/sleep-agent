@@ -1,6 +1,7 @@
 """YA70 日期区间统计接口的只读适配层。"""
 from __future__ import annotations
 
+import asyncio
 import json
 import ipaddress
 import time
@@ -8,7 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import nightdata
+from . import async_http, nightdata
 
 DEFAULT_URL = "http://127.0.0.1:8081/infc/respStatisticsYa70/listByDateRange"
 MODE_LABELS = {
@@ -78,6 +79,51 @@ def fetch_rows(user_id: int, start_date: str, end_date: str, api_key: str,
                 continue
             raise RuntimeError("YA70 接口连接失败：" + str(exc))
     data = json.loads(body)
+    if data.get("recode") != 1:
+        raise RuntimeError(
+            "YA70 接口返回失败：" + str(data.get("msg") or data.get("message") or data)
+        )
+    rows = data.get("result")
+    if not isinstance(rows, list):
+        raise RuntimeError("YA70 接口没有返回 result 数组")
+    return rows
+
+
+async def fetch_rows_async(user_id: int, start_date: str, end_date: str,
+                           api_key: str, url: str = DEFAULT_URL,
+                           timeout: float = 20) -> list:
+    """异步查询 YA70 接口。"""
+    payload = {
+        "userid": int(user_id),
+        "startDate": start_date,
+        "endDate": end_date,
+    }
+    response = None
+    for attempt in range(2):
+        try:
+            response = await async_http.request(
+                "POST", url,
+                json=payload,
+                headers={"Content-Type": "application/json", "key": api_key},
+                timeout=timeout,
+            )
+            break
+        except Exception as exc:
+            if attempt == 0:
+                await asyncio.sleep(0.5)
+                continue
+            raise RuntimeError("YA70 接口连接失败：" + str(exc)) from exc
+    if response is None:
+        raise RuntimeError("YA70 接口没有返回响应")
+    if response.status_code >= 400:
+        raise RuntimeError(
+            "YA70 接口 HTTP " + str(response.status_code) + "："
+            + response.text[:500]
+        )
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError("YA70 接口返回非 JSON 内容") from exc
     if data.get("recode") != 1:
         raise RuntimeError(
             "YA70 接口返回失败：" + str(data.get("msg") or data.get("message") or data)

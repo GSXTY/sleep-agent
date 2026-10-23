@@ -116,6 +116,49 @@ def _chat_locked(message: str, session_id: str, use_llm: bool,
     return payload
 
 
+async def chat_async(message: str, session_id: str, use_llm: bool = True,
+                     user_id: str | None = None):
+    """FastAPI 使用的异步版本；调用方负责同一会话串行锁。"""
+    user_id = str(user_id or USER_ID)
+    data = nights(user_id)
+    session_key = (user_id, session_id)
+    history = _sessions.setdefault(session_key, [])
+    question, pending = pipeline.resolve_pending_confirmation(message, history)
+    selection = nightdata.resolve_night(user_id, data, question)
+    if selection.status != "none" and selection.night is not None:
+        night = selection.night
+    else:
+        night = _session_nights.get(session_key) or data[-1]
+    _session_nights[session_key] = night
+    result = await pipeline.answer_async(
+        pipeline.UserQuery(
+            question=question, history=history, use_llm=use_llm,
+            user_id=user_id, time_status=selection.status,
+            time_note=selection.note,
+            available_dates=nightdata.dataset_dates(data),
+        ),
+        night,
+    )
+    if result.mode.startswith(("设备数据", "报告生成", "App报告解读")):
+        extra = pending or selection.note
+        if extra and extra not in result.detail:
+            result.detail = " · ".join(
+                part for part in (result.detail, extra) if part
+            )
+    result.detail = public_detail(result)
+
+    history.extend([
+        {"role": "user", "content": message},
+        {"role": "assistant", "content": result.text},
+    ])
+    _sessions[session_key] = history[-MAX_HISTORY:]
+
+    payload = result.to_dict()
+    payload["session_id"] = session_id
+    payload["user_id"] = user_id
+    return payload
+
+
 def save_feedback(body: dict) -> None:
     FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
     record = {

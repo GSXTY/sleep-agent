@@ -1,6 +1,7 @@
 """Agent 数据源选择：本地样板数据或 YA70 后台接口。"""
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import os
@@ -106,6 +107,40 @@ def load_nights(user_id: str | None = None, source: str | None = None) -> list:
 
 def load_night(user_id: str | None = None, source: str | None = None):
     nights = load_nights(user_id=user_id, source=source)
+    return nights[-1]
+
+
+async def load_nights_async(user_id: str | None = None,
+                            source: str | None = None) -> list:
+    cfg = settings(source=source, user_id=user_id)
+    if cfg["source"] == "sample":
+        return await asyncio.to_thread(nightdata.load_dataset, cfg["user_id"])
+    if not cfg["key"]:
+        raise RuntimeError(
+            "backend 数据源缺少 key：请设置 SLEEPAGENT_BACKEND_KEY，"
+            "或在 .local/ya70_api.json 中填写 key"
+        )
+    rows = await backend_ya70.fetch_rows_async(
+        int(cfg["user_id"]),
+        cfg["start_date"],
+        cfg["end_date"],
+        cfg["key"],
+        cfg["url"],
+        cfg["timeout"],
+    )
+    nights = await asyncio.to_thread(
+        backend_ya70.rows_to_nights, rows, int(cfg["user_id"])
+    )
+    if not nights:
+        raise RuntimeError(
+            "后台在 " + cfg["start_date"] + " 至 " + cfg["end_date"] + " 没有数据"
+        )
+    return nights
+
+
+async def load_night_async(user_id: str | None = None,
+                           source: str | None = None):
+    nights = await load_nights_async(user_id=user_id, source=source)
     return nights[-1]
 
 

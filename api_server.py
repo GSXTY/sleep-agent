@@ -6,13 +6,12 @@ import os
 import uuid
 from contextlib import asynccontextmanager
 
-import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 import demo_server
-from sleepagent import data_source
+from sleepagent import async_http, data_source
 from sleepagent.logging_config import configure_logging
 
 MAX_CHAT_CONCURRENCY = max(1, int(os.getenv("API_MAX_CONCURRENCY", "16")))
@@ -20,6 +19,7 @@ AUTH_MODE = os.getenv("SLEEPAGENT_API_AUTH_MODE", "demo").lower()
 
 _chat_slots = asyncio.Semaphore(MAX_CHAT_CONCURRENCY)
 _session_locks: dict[tuple[str, str], asyncio.Lock] = {}
+_dataset_locks: dict[str, asyncio.Lock] = {}
 _locks_guard = asyncio.Lock()
 
 
@@ -50,6 +50,26 @@ async def get_session_lock(user_id: str, session_id: str) -> asyncio.Lock:
         return lock
 
 
+async def ensure_nights(user_id: str):
+    if user_id in demo_server._datasets:
+        return
+    async with _locks_guard:
+        lock = _dataset_locks.get(user_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _dataset_locks[user_id] = lock
+    async with lock:
+        if user_id in demo_server._datasets:
+            return
+        nights = await data_source.load_nights_async(
+            user_id=user_id,
+            source=demo_server.DATA_SOURCE or None,
+        )
+        dataset_lock = demo_server.keyed_lock(demo_server._dataset_locks, user_id)
+        with dataset_lock:
+            demo_server._datasets[user_id] = nights
+
+
 def resolve_user_id(payload: ChatRequest) -> str:
     """Demo 允许显式测试用户；正式部署必须替换为 Token 鉴权依赖。"""
     if AUTH_MODE != "demo":
@@ -60,11 +80,11 @@ def resolve_user_id(payload: ChatRequest) -> str:
 async def run_chat(payload: ChatRequest) -> dict:
     user_id = resolve_user_id(payload)
     session_id = payload.session_id or uuid.uuid4().hex[:16]
+    await ensure_nights(user_id)
     lock = await get_session_lock(user_id, session_id)
     async with lock:
         async with _chat_slots:
-            return await asyncio.to_thread(
-                demo_server.chat,
+            return await demo_server.chat_async(
                 payload.message,
                 session_id,
                 payload.use_llm,
@@ -87,12 +107,8 @@ async def lifespan(app: FastAPI):
     settings = data_source.settings()
     demo_server.DATA_SOURCE = settings["source"]
     demo_server.USER_ID = settings["user_id"]
-    app.state.http = httpx.AsyncClient(
-        timeout=httpx.Timeout(60.0),
-        limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
-    )
     yield
-    await app.state.http.aclose()
+    await async_http.close_client()
 
 
 app = FastAPI(
@@ -116,6 +132,8 @@ async def health():
         "sessions": len(demo_server._sessions),
         "max_chat_concurrency": MAX_CHAT_CONCURRENCY,
         "auth_mode": AUTH_MODE,
+        "async_backend": True,
+        "async_model_client": True,
     }
 
 

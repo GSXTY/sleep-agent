@@ -47,6 +47,11 @@ python -m uvicorn api_server:app --host 0.0.0.0 --port 8101
 - SSE `StreamingResponse`
 - 心跳事件
 - 客户端断开后停止后续 SSE 推送
+- 共享 `httpx.AsyncClient` 连接池
+- 异步后台数据预取
+- `llm.chat_async()` 异步模型客户端
+- `pipeline.answer_async()` 异步模型桥接
+- 客户端取消时停止等待中的模型请求
 
 现有同步 Agent 管线暂时通过：
 
@@ -58,10 +63,11 @@ await asyncio.to_thread(demo_server.chat, ...)
 
 ## 尚未完成
 
-- `pipeline.py`、DeepSeek 和后台接口还没有完全改为异步 `httpx`
-- `to_thread` 中已经开始的同步 `urllib` 请求不会因客户端断开而立即终止
+- 8100 Demo 和 CLI 仍使用同步模型路径，作为回滚兼容入口
 - 正式 Token 鉴权尚未接入；默认仅为内部 Demo 模式
 - 单进程内存会话和锁在多实例下仍需 Redis
+
+异步网络层的实现和迁移边界见 [ASYNC_NETWORKING.md](ASYNC_NETWORKING.md)。
 
 ## 服务器部署
 

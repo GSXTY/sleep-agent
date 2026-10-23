@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import datetime as dt
 import logging
@@ -2267,5 +2268,22 @@ def answer(query: UserQuery | str, night: nightdata.Night,
                 recall=len(picked) + len(knowledge_hits),
                 model_used=bool(use_llm),
                 marker=fallback_marker)
+
+
+async def answer_async(query: UserQuery | str, night: nightdata.Night,
+                       history: list | None = None, use_llm: bool = True,
+                       user_id: str = "DEMO-USER") -> AgentResponse:
+    """在保持同步业务结构的同时，将模型网络调用桥接到异步 httpx。"""
+    bridge = llm.AsyncLLMBridge(asyncio.get_running_loop())
+    token = llm.set_async_bridge(bridge)
+    try:
+        return await asyncio.to_thread(
+            answer, query, night, history, use_llm, user_id
+        )
+    except asyncio.CancelledError:
+        bridge.cancel()
+        raise
+    finally:
+        llm.reset_async_bridge(token)
 
 

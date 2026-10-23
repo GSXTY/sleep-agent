@@ -9,12 +9,17 @@
 """
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
+import contextvars
 import json
 import os
 import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+from . import async_http
 
 CONFIG_FILE = Path(__file__).resolve().parents[1] / "config.json"
 
@@ -26,6 +31,52 @@ DEFAULT_TIMEOUT = 60.0
 MAX_CONCURRENCY = max(1, int(os.getenv("LLM_MAX_CONCURRENCY", "8")))
 QUEUE_TIMEOUT = max(0.1, float(os.getenv("LLM_QUEUE_TIMEOUT_SECONDS", "15")))
 _chat_slots = threading.BoundedSemaphore(MAX_CONCURRENCY)
+_async_chat_slots = asyncio.Semaphore(MAX_CONCURRENCY)
+_ASYNC_BRIDGE = contextvars.ContextVar("sleepagent_async_bridge", default=None)
+
+
+class LLMRequestCancelled(Exception):
+    """外层请求取消后，让同步 Agent 线程立即停止继续生成。"""
+
+
+class AsyncLLMBridge:
+    """把工作线程里的同步 llm.chat 桥接到主事件循环的异步客户端。"""
+
+    def __init__(self, loop):
+        self.loop = loop
+        self.cancelled = False
+        self._futures = set()
+        self._lock = threading.Lock()
+
+    def call(self, coroutine):
+        if self.cancelled:
+            coroutine.close()
+            raise LLMRequestCancelled("请求已取消")
+        future = asyncio.run_coroutine_threadsafe(coroutine, self.loop)
+        with self._lock:
+            self._futures.add(future)
+        try:
+            return future.result()
+        except concurrent.futures.CancelledError as exc:
+            raise LLMRequestCancelled("请求已取消") from exc
+        finally:
+            with self._lock:
+                self._futures.discard(future)
+
+    def cancel(self):
+        self.cancelled = True
+        with self._lock:
+            futures = list(self._futures)
+        for future in futures:
+            future.cancel()
+
+
+def set_async_bridge(bridge):
+    return _ASYNC_BRIDGE.set(bridge)
+
+
+def reset_async_bridge(token) -> None:
+    _ASYNC_BRIDGE.reset(token)
 
 
 def _config() -> dict:
@@ -193,6 +244,11 @@ def _open_request(request, timeout: float):
 
 def chat(messages: list, *, temperature: float = 0.2, max_tokens: int = 400) -> dict:
     """带进程内并发上限的聊天入口。"""
+    bridge = _ASYNC_BRIDGE.get()
+    if bridge is not None:
+        return bridge.call(chat_async(
+            messages, temperature=temperature, max_tokens=max_tokens
+        ))
     if not _chat_slots.acquire(timeout=QUEUE_TIMEOUT):
         return {
             "status": "busy",
@@ -250,3 +306,127 @@ def _chat_unlocked(messages: list, *, temperature: float = 0.2,
                 "usage": usage}
     return {"status": "success", "content": content.strip(), "model": cfg["model"],
             "provider": cfg["provider"], "detail": "", "usage": usage}
+
+
+async def chat_async(messages: list, *, temperature: float = 0.2,
+                     max_tokens: int = 400) -> dict:
+    """异步聊天入口，使用共享 httpx 连接池。"""
+    cfg = settings()
+    acquired = False
+    try:
+        await asyncio.wait_for(
+            _async_chat_slots.acquire(), timeout=QUEUE_TIMEOUT
+        )
+        acquired = True
+    except asyncio.TimeoutError:
+        return {
+            "status": "busy",
+            "content": "",
+            "model": cfg["model"],
+            "provider": cfg["provider"],
+            "detail": "模型并发已满，请稍后重试",
+            "usage": {},
+        }
+    try:
+        if cfg["provider"] == "openai":
+            if not cfg["api_key"]:
+                return {
+                    "status": "unconfigured",
+                    "content": "",
+                    "model": cfg["model"],
+                    "provider": "openai",
+                    "detail": "缺少 API Key",
+                    "usage": {},
+                }
+            url = cfg["base_url"] + "/chat/completions"
+            headers = {"Authorization": "Bearer " + cfg["api_key"]}
+            payload = {
+                "model": cfg["model"],
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": False,
+            }
+        else:
+            url = cfg["base_url"] + "/api/chat"
+            headers = {}
+            payload = {
+                "model": cfg["model"],
+                "messages": messages,
+                "stream": False,
+                "think": False,
+                "keep_alive": "15m",
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            }
+        try:
+            response = await async_http.request(
+                "POST", url, json=payload, headers=headers,
+                timeout=cfg["timeout"],
+            )
+        except Exception as exc:
+            return {
+                "status": "error",
+                "content": "",
+                "model": cfg["model"],
+                "provider": cfg["provider"],
+                "detail": str(exc),
+                "usage": {},
+            }
+        if response.status_code >= 400:
+            detail = response.text[:300]
+            if response.status_code == 401:
+                detail = "鉴权失败（401），请检查 API Key。"
+            elif response.status_code == 404:
+                detail = "接口或模型不存在（404）：" + detail
+            else:
+                detail = "HTTP " + str(response.status_code) + " " + detail
+            return {
+                "status": "error",
+                "content": "",
+                "model": cfg["model"],
+                "provider": cfg["provider"],
+                "detail": detail,
+                "usage": {},
+            }
+        try:
+            body = response.json()
+        except ValueError:
+            return {
+                "status": "error",
+                "content": "",
+                "model": cfg["model"],
+                "provider": cfg["provider"],
+                "detail": "模型返回非 JSON 内容",
+                "usage": {},
+            }
+        if cfg["provider"] == "openai":
+            choices = body.get("choices") or []
+            content = (
+                choices[0].get("message", {}).get("content") if choices else ""
+            ) or ""
+        else:
+            content = (body.get("message") or {}).get("content", "") or ""
+        usage = _usage(body, cfg["provider"])
+        if not content.strip():
+            return {
+                "status": "empty",
+                "content": "",
+                "model": cfg["model"],
+                "provider": cfg["provider"],
+                "detail": "模型返回空内容",
+                "usage": usage,
+            }
+        return {
+            "status": "success",
+            "content": content.strip(),
+            "model": cfg["model"],
+            "provider": cfg["provider"],
+            "detail": "",
+            "usage": usage,
+        }
+    finally:
+        if acquired:
+            _async_chat_slots.release()

@@ -4,6 +4,9 @@ import os
 os.environ.setdefault("SLEEPAGENT_DISABLE_VECTORS", "1")
 
 import unittest
+from unittest import mock
+
+from sleepagent import nightdata
 
 try:
     from fastapi.testclient import TestClient
@@ -17,12 +20,22 @@ except ImportError:
 class ApiServerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        async def fake_load_nights_async(user_id=None, source=None):
+            return nightdata.load_dataset(str(user_id or "DEMO-USER"))
+
+        cls.night_patch = mock.patch.object(
+            api_server.data_source,
+            "load_nights_async",
+            new=mock.AsyncMock(side_effect=fake_load_nights_async),
+        )
+        cls.night_patch.start()
         cls.client = TestClient(api_server.app)
         cls.client.__enter__()
 
     @classmethod
     def tearDownClass(cls):
         cls.client.__exit__(None, None, None)
+        cls.night_patch.stop()
 
     def test_health(self):
         response = self.client.get("/api/health")
